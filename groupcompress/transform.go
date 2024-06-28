@@ -44,3 +44,19 @@ func InvertMapping[T BitPattern](mapping []T) []T {
 	}
 	return reverse
 }
+
+type TransformList[T BitPattern] []*Transform[T]
+
+func (t TransformList[T]) Inverse() TransformList[T] {
+	result := make(TransformList[T], 0, len(t))
+	for i := len(t) - 1; i >= 0; i-- {
+		result = append(result, t[i].Inverse())
+	}
+	return result
+}
+
+func (t TransformList[T]) Apply(b *BitString) {
+	for _, x := range t {
+		x.Apply(b)
+	}
+}

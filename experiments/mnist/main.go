@@ -16,6 +16,8 @@ import (
 	"github.com/unixpickle/mnistlite"
 )
 
+type Model = groupcompress.TransformList[uint8]
+
 func main() {
 	var batchSize int
 	var numBits int
@@ -33,7 +35,8 @@ func main() {
 	flag.StringVar(&savePath, "save-path", "model.json", "path to save model checkpoint")
 	flag.Parse()
 
-	model := []*groupcompress.Transform[uint8]{}
+	var model Model
+
 	if _, err := os.Stat(savePath); err == nil {
 		log.Printf("Loading checkpoint: %s ...", savePath)
 		data, err := os.ReadFile(savePath)
@@ -74,7 +77,7 @@ func main() {
 
 func EstimatePrior(
 	batches <-chan []*groupcompress.BitString,
-	model []*groupcompress.Transform[uint8],
+	model Model,
 	numSamples int,
 ) []float64 {
 	counts := make([]float64, 28*28)
@@ -84,9 +87,7 @@ func EstimatePrior(
 OuterLoop:
 	for batch := range batches {
 		for _, x := range batch {
-			for _, layer := range model {
-				layer.Apply(x)
-			}
+			model.Apply(x)
 			for i := range counts {
 				if x.Get(i) {
 					counts[i]++
@@ -105,18 +106,14 @@ OuterLoop:
 	return counts
 }
 
-func Sample(prior []float64, layers []*groupcompress.Transform[uint8]) *groupcompress.BitString {
+func Sample(prior []float64, model Model) *groupcompress.BitString {
 	result := groupcompress.NewBitString(len(prior))
 	for i, p := range prior {
 		if rand.Float64() < p {
 			result.Set(i, true)
 		}
 	}
-
-	for i := len(layers) - 1; i >= 0; i-- {
-		layers[i].Inverse().Apply(result)
-	}
-
+	model.Inverse().Apply(result)
 	return result
 }
 
