@@ -14,6 +14,7 @@ class Transform(nn.Module):
     perm: torch.Tensor
 
     def __init__(self, indices: torch.Tensor, perm: torch.Tensor):
+        super().__init__()
         self.register_buffer("indices", indices)
         self.register_buffer("perm", perm)
         self.register_buffer(
@@ -31,3 +32,10 @@ class Transform(nn.Module):
         out = x.clone()
         out[:, self.indices] = (permuted.unsqueeze(-1) & self.bits) != 0
         return out
+
+    def inverse(self) -> "Transform":
+        perm = torch.empty_like(self.perm)
+        perm.scatter_(
+            0, self.perm, torch.arange(len(self.perm), device=self.perm.device)
+        )
+        return Transform(self.indices, perm)

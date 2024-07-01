@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import torch
 
+from .metric import bitwise_entropy
 from .transform import Transform
 
 
@@ -53,11 +54,16 @@ def _entropy_search(
     bitmask = 2 ** torch.arange(0, num_bits, device=indices.device)
     old_bits = dataset[:, indices].view(dataset.shape[0], num_samples, num_bits)
     patterns = torch.einsum("ijk,k->ij", old_bits.long(), bitmask)  # [N x num_samples]
-    permuted = permutations.gather(1, patterns)  # [N x num_samples]
+    permuted = (
+        permutations[None]
+        .repeat(patterns.shape[0], 1, 1)
+        .gather(1, patterns[..., None])
+        .squeeze(-1)
+    )  # [N x num_samples]
     new_bits = (permuted[..., None] & bitmask) != 0
 
-    old_ents = _bitwise_entropy(old_bits)
-    new_ents = _bitwise_entropy(new_bits)
+    old_ents = bitwise_entropy(old_bits)
+    new_ents = bitwise_entropy(new_bits)
     improvements = old_ents - new_ents
     best_delta, best_index = improvements.max(0)
     best_indices = indices[best_index]
@@ -66,17 +72,3 @@ def _entropy_search(
         transform=Transform(best_indices, best_perm),
         delta=best_delta.item(),
     )
-
-
-def _bitwise_entropy(bits: torch.Tensor) -> torch.Tensor:
-    """
-    :param bits: [N x S x bits]
-    :return: [S]
-    """
-    sum = bits.float().sum(0)
-    prob = sum / bits.shape[0]
-    ent = (
-        prob * prob.clamp(min=1e-8).log()
-        + (1 - prob) * (1 - prob).clamp(min=1e-8).log()
-    )
-    return -ent.sum(-1)
