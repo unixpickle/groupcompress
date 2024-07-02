@@ -57,7 +57,7 @@ def _entropy_search(
     permuted = (
         permutations[None]
         .repeat(patterns.shape[0], 1, 1)
-        .gather(1, patterns[..., None])
+        .gather(-1, patterns[..., None])
         .squeeze(-1)
     )  # [N x num_samples]
     new_bits = (permuted[..., None] & bitmask) != 0
@@ -68,6 +68,7 @@ def _entropy_search(
     best_delta, best_index = improvements.max(0)
     best_indices = indices[best_index]
     best_perm = permutations[best_index]
+
     return EntropyResult(
         transform=Transform(best_indices, best_perm),
         delta=best_delta.item(),

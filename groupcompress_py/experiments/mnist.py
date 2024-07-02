@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.datasets
+from PIL import Image
 
 from groupcompress_py.entropy_search import entropy_search
 from groupcompress_py.metric import bitwise_entropy
@@ -31,6 +32,50 @@ def main():
         )
         print(f"step {len(model)}: loss={entropy} delta={result.delta}")
         model.append(result.transform)
+
+        prior = estimate_prior(model, loader, args.prior_samples)
+        samples = sample(model, prior, args.sample_grid**2)
+        samples = samples.view(args.sample_grid, args.sample_grid, 28, 28, 1)
+        samples = (
+            samples.permute(0, 2, 1, 3, 4)
+            .reshape(args.sample_grid * 28, args.sample_grid * 28, 1)
+            .repeat(1, 1, 3)
+        )
+        samples = samples.cpu().numpy().astype(np.uint8) * 255
+        Image.fromarray(samples).save(args.sample_path)
+
+
+def estimate_prior(
+    model: nn.Sequential, loader: Iterator[torch.Tensor], num_samples: int
+) -> torch.Tensor:
+    """
+    :return: a [D] tensor of probabilities.
+    """
+    n = 0
+    total = 0.0
+    for batch in loader:
+        batch = batch[: num_samples - n]
+        batch = model(batch)
+        total += batch.float().sum(0)
+
+        n += len(batch)
+        if n == num_samples:
+            break
+
+    return total / num_samples
+
+
+def sample(model: nn.Sequential, prior: torch.Tensor, batch_size: int) -> torch.Tensor:
+    """
+    :param model: sequence of Transform layers.
+    :param prior: [D]
+    :return: [batch_size x D]
+    """
+    p = prior[None].repeat(batch_size, 1)
+    bits = torch.rand_like(p) < p
+    for layer in model[::-1]:
+        bits = layer.inverse()(bits)
+    return bits
 
 
 def parse_args() -> argparse.Namespace:
