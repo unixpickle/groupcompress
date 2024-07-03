@@ -1,4 +1,5 @@
 import argparse
+import os
 import random
 from typing import Iterator
 
@@ -20,6 +21,12 @@ def main():
     loader = load_data(device, args.batch_size)
 
     model = nn.Sequential()
+
+    if os.path.exists(args.save_path):
+        print(f"loading from {args.save_path} ...")
+        with open(args.save_path, "rb") as f:
+            model = torch.load(f, map_location=device)
+
     while True:
         batch = next(loader)
         batch = model(batch)
@@ -43,6 +50,9 @@ def main():
         )
         samples = samples.cpu().numpy().astype(np.uint8) * 255
         Image.fromarray(samples).save(args.sample_path)
+
+        with open(args.save_path, "wb") as f:
+            torch.save(model, f)
 
 
 def estimate_prior(
@@ -92,7 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-bits", type=int, default=3, help="bits per group")
     parser.add_argument("--samples", type=int, default=100000, help="groups to sample")
     parser.add_argument(
-        "--sample-grid", type=int, default=4, help="size of sample grid"
+        "--sample-grid", type=int, default=8, help="size of sample grid"
     )
     parser.add_argument(
         "--prior-samples",
@@ -109,7 +119,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--save-path",
         type=str,
-        default="model.json",
+        default="model.pt",
         help="path to save model checkpoint",
     )
     return parser.parse_args()
@@ -117,17 +127,26 @@ def parse_args() -> argparse.Namespace:
 
 def load_data(device: torch.device, batch_size: int) -> Iterator[torch.Tensor]:
     dataset = torchvision.datasets.MNIST("data/mnist", train=True, download=True)
+    all_arrays = np.stack([np.array(x).flatten() for x, _ in dataset])
+    all_data = torch.from_numpy(all_arrays).to(device)
+
     batch = []
     while True:
-        indices = list(range(len(dataset)))
-        random.shuffle(indices)
-        for i in indices:
-            example, _ = dataset[i]
-            batch.append(np.array(example).flatten())
-            if len(batch) == batch_size:
-                probs = torch.from_numpy(np.stack(batch)).to(device).float() / 255
+        indices = torch.randperm(len(all_data), device=device)
+        i = 0
+        while i < len(indices):
+            remaining = len(indices) - i
+            requested = batch_size - sum(len(x) for x in batch)
+            if remaining >= requested:
+                batch.append(all_data[indices[i : i + requested]])
+                values = torch.cat(batch)
+                probs = values.float() / 255
                 yield torch.rand_like(probs) < probs
                 batch = []
+                i += requested
+            else:
+                batch.append(all_data[indices[i : i + remaining]])
+                break
 
 
 if __name__ == "__main__":

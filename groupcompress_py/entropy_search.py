@@ -53,7 +53,7 @@ def _entropy_search(
     )  # [num_samples x 2**num_bits]
     bitmask = 2 ** torch.arange(0, num_bits, device=indices.device)
     old_bits = dataset[:, indices].view(dataset.shape[0], num_samples, num_bits)
-    patterns = torch.einsum("ijk,k->ij", old_bits.long(), bitmask)  # [N x num_samples]
+    patterns = (old_bits.long() * bitmask).sum(-1)  # [N x num_samples]
     permuted = (
         permutations[None]
         .repeat(patterns.shape[0], 1, 1)

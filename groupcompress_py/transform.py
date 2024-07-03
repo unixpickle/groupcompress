@@ -27,7 +27,7 @@ class Transform(nn.Module):
         :return: an [N x K] tensor of booleans.
         """
         flags = x[:, self.indices]
-        values = torch.einsum("ij,j->i", flags.long(), self.bits)
+        values = (flags.long() * self.bits).sum(-1)
         permuted = self.perm[values]
         out = x.clone()
         out[:, self.indices] = (permuted.unsqueeze(-1) & self.bits) != 0
