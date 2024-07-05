@@ -22,6 +22,7 @@ func main() {
 	var batchSize int
 	var numBits int
 	var samples int
+	var permSamples int
 	var sampleGrid int
 	var priorSamples int
 	var samplePath string
@@ -29,6 +30,7 @@ func main() {
 	flag.IntVar(&batchSize, "batch-size", 128, "examples per layer")
 	flag.IntVar(&numBits, "num-bits", 3, "bits per group")
 	flag.IntVar(&samples, "samples", 100000, "groups to sample")
+	flag.IntVar(&permSamples, "perm-samples", 1, "permutations to sample")
 	flag.IntVar(&sampleGrid, "sample-grid", 4, "size of sample grid")
 	flag.IntVar(&priorSamples, "prior-samples", 60000, "number of samples to compute prior")
 	flag.StringVar(&samplePath, "sample-path", "samples.png", "path of samples output image")
@@ -57,6 +59,7 @@ func main() {
 			batch,
 			numBits,
 			samples,
+			permSamples,
 		)
 		log.Printf("step %d: loss=%f reduction=%f", len(model), initEntropy*28*28, result.EntropyReduction())
 		model = append(model, result.Transform)

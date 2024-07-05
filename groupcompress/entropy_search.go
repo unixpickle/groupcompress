@@ -22,6 +22,7 @@ func EntropySearch[T BitPattern](
 	data []*BitString,
 	numBits int,
 	samples int,
+	permSamples int,
 ) *EntropySearchResult[T] {
 	workers := runtime.GOMAXPROCS(0)
 	if workers > samples {
@@ -36,7 +37,7 @@ func EntropySearch[T BitPattern](
 		}
 		rng := rand.New(rand.NewSource(rand.Int63()))
 		go func() {
-			results <- entropySearch[T](rng, data, numBits, samplesPerWorker)
+			results <- entropySearch[T](rng, data, numBits, samplesPerWorker, permSamples)
 		}()
 	}
 	var best *EntropySearchResult[T]
@@ -54,44 +55,49 @@ func entropySearch[T BitPattern](
 	data []*BitString,
 	numBits int,
 	samples int,
+	permSamples int,
 ) *EntropySearchResult[T] {
 	var best EntropySearchResult[T]
 
 	// Pre-allocate and reuse
-	patterns := make([]T, len(data))
 	entropyCounter := NewEntropyCounter[T](numBits)
 
 	for i := 0; i < samples; i++ {
 		indices := sampleIndices(rng, data[0].NumBits, numBits)
 
 		entropyCounter.Reset()
-		for i, datum := range data {
+		for _, datum := range data {
 			pattern := ExtractBitPattern[T](datum, indices)
-			patterns[i] = pattern
 			entropyCounter.Add(pattern)
 		}
 		bitwiseOld := entropyCounter.BitwiseEntropy()
-		entropyCounter.Reset()
-
-		perm := make([]T, 1<<uint(numBits))
-		for i, x := range rng.Perm(len(perm)) {
-			perm[i] = T(x)
-		}
-		for _, x := range patterns {
-			entropyCounter.Add(perm[x])
-		}
-		bitwiseNew := entropyCounter.BitwiseEntropy()
 		jointEntropy := entropyCounter.JointEntropy()
+		if i > 0 && bitwiseOld-jointEntropy < best.EntropyReduction() {
+			continue
+		}
 
-		delta := bitwiseOld - bitwiseNew
-		if delta >= best.EntropyReduction() || i == 0 {
+		var bestPerm []T
+		var bestDelta float64
+		for i := 0; i < permSamples; i++ {
+			perm := make([]T, 1<<uint(numBits))
+			for i, x := range rng.Perm(len(perm)) {
+				perm[i] = T(x)
+			}
+			delta := bitwiseOld - entropyCounter.PermutedBitwiseEntropy(perm)
+			if delta > bestDelta || bestPerm == nil {
+				bestPerm = perm
+				bestDelta = delta
+			}
+		}
+
+		if bestDelta >= best.EntropyReduction() || i == 0 {
 			best = EntropySearchResult[T]{
 				Transform: &Transform[T]{
 					Indices: indices,
-					Mapping: perm,
+					Mapping: bestPerm,
 				},
 				OldBitwiseEntropy: bitwiseOld,
-				NewBitwiseEntropy: bitwiseNew,
+				NewBitwiseEntropy: bitwiseOld - bestDelta,
 				JointEntropy:      jointEntropy,
 			}
 		}

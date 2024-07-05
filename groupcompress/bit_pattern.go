@@ -21,14 +21,14 @@ func ExtractBitPattern[T BitPattern](s *BitString, indices []int) T {
 // of a sequence of bit patterns in a rolling fashion.
 type EntropyCounter[T BitPattern] struct {
 	singleCounts []int
-	jointCounts  []T
+	jointCounts  []int
 	count        int
 }
 
 func NewEntropyCounter[T BitPattern](numBits int) *EntropyCounter[T] {
 	return &EntropyCounter[T]{
 		singleCounts: make([]int, numBits),
-		jointCounts:  make([]T, 1<<uint(numBits)),
+		jointCounts:  make([]int, 1<<uint(numBits)),
 	}
 }
 
@@ -81,4 +81,27 @@ func (e *EntropyCounter[T]) JointEntropy() float64 {
 		entropy -= prob * math.Log(prob)
 	}
 	return entropy
+}
+
+// PermutedBitwiseEntropy permutes the joint values and
+// returns the new bitwise entropy.
+//
+// Future calls to BitwiseEntropy() will return this new
+// value.
+//
+// This can be called multiple times, erasing the previous
+// result. Successive permutations will not be composed.
+func (e *EntropyCounter[T]) PermutedBitwiseEntropy(perm []T) float64 {
+	for i := range e.singleCounts {
+		e.singleCounts[i] = 0
+	}
+	for i, count := range e.jointCounts {
+		outVal := perm[i]
+		for j, x := range e.singleCounts {
+			if outVal&(1<<uint(j)) != 0 {
+				e.singleCounts[j] = x + count
+			}
+		}
+	}
+	return e.BitwiseEntropy()
 }
