@@ -22,7 +22,7 @@ func EntropySearch[T BitPattern](
 	data []*BitString,
 	numBits int,
 	samples int,
-	permSamples int,
+	permSearch PermSearch[T],
 ) *EntropySearchResult[T] {
 	workers := runtime.GOMAXPROCS(0)
 	if workers > samples {
@@ -37,7 +37,7 @@ func EntropySearch[T BitPattern](
 		}
 		rng := rand.New(rand.NewSource(rand.Int63()))
 		go func() {
-			results <- entropySearch[T](rng, data, numBits, samplesPerWorker, permSamples)
+			results <- entropySearch[T](rng, data, numBits, samplesPerWorker, permSearch)
 		}()
 	}
 	var best *EntropySearchResult[T]
@@ -55,7 +55,7 @@ func entropySearch[T BitPattern](
 	data []*BitString,
 	numBits int,
 	samples int,
-	permSamples int,
+	permSearch PermSearch[T],
 ) *EntropySearchResult[T] {
 	var best EntropySearchResult[T]
 
@@ -76,19 +76,15 @@ func entropySearch[T BitPattern](
 			continue
 		}
 
-		var bestPerm []T
-		var bestDelta float64
-		for i := 0; i < permSamples; i++ {
-			perm := make([]T, 1<<uint(numBits))
-			for i, x := range rng.Perm(len(perm)) {
-				perm[i] = T(x)
-			}
-			delta := bitwiseOld - entropyCounter.PermutedBitwiseEntropy(perm)
-			if delta > bestDelta || bestPerm == nil {
-				bestPerm = perm
-				bestDelta = delta
-			}
+		deltaFunc := func(perm []T) float64 {
+			return bitwiseOld - entropyCounter.PermutedBitwiseEntropy(perm)
 		}
+		bestPerm := permSearch.Search(
+			rng,
+			1<<uint(numBits),
+			deltaFunc,
+		)
+		bestDelta := deltaFunc(bestPerm)
 
 		if bestDelta >= best.EntropyReduction() || i == 0 {
 			best = EntropySearchResult[T]{

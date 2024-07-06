@@ -19,18 +19,30 @@ import (
 type Model = groupcompress.TransformList[uint8]
 
 func main() {
+	var savePath string
+
+	// Hyperparameters
 	var batchSize int
 	var numBits int
 	var samples int
-	var permSamples int
+	var permSearch groupcompress.EvoPermSearch[uint8]
+
+	// Sampling
 	var sampleGrid int
 	var priorSamples int
 	var samplePath string
-	var savePath string
+
 	flag.IntVar(&batchSize, "batch-size", 128, "examples per layer")
 	flag.IntVar(&numBits, "num-bits", 3, "bits per group")
 	flag.IntVar(&samples, "samples", 100000, "groups to sample")
-	flag.IntVar(&permSamples, "perm-samples", 1, "permutations to sample")
+	flag.IntVar(&permSearch.Generations, "perm-generations", 0,
+		"generations of evolutionary permutation search")
+	flag.IntVar(&permSearch.Population, "perm-population", 1000,
+		"population of evolutionary permutation search")
+	flag.IntVar(&permSearch.Mutations, "perm-mutations", 0,
+		"mutations per example in evolutionary permutation search")
+	flag.IntVar(&permSearch.MaxSwapsPerMutation, "perm-swaps", 5,
+		"maximum swaps per mutation in evolutionary permutation search")
 	flag.IntVar(&sampleGrid, "sample-grid", 4, "size of sample grid")
 	flag.IntVar(&priorSamples, "prior-samples", 60000, "number of samples to compute prior")
 	flag.StringVar(&samplePath, "sample-path", "samples.png", "path of samples output image")
@@ -59,7 +71,7 @@ func main() {
 			batch,
 			numBits,
 			samples,
-			permSamples,
+			&permSearch,
 		)
 		log.Printf("step %d: loss=%f reduction=%f", len(model), initEntropy*28*28, result.EntropyReduction())
 		model = append(model, result.Transform)
