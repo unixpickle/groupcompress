@@ -6,7 +6,7 @@ import (
 )
 
 // A PermObjectiveFunc returns a deterministic value for a
-// permutation over N elements.
+// permutation over N elements, the higher the better.
 //
 // Objective functions are not necessarily safe to call
 // concurrently from multiple Goroutines.
@@ -136,4 +136,30 @@ func (e evoPopulation[T]) Less(i, j int) bool {
 
 func (e evoPopulation[T]) Swap(i, j int) {
 	e[i], e[j] = e[j], e[i]
+}
+
+type GreedyBitwiseSearch[T BitPattern] struct{}
+
+func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiveFunc[T]) []T {
+	perm := make([]T, size)
+	for i := range perm {
+		perm[i] = T(i)
+	}
+	loss := f(perm)
+	inverse := append([]T{}, perm...)
+	for bitMask := uint64(1); (1 << bitMask) < size; bitMask <<= 1 {
+		for i, t := range perm {
+			other := t ^ T(bitMask)
+			otherIdx := inverse[other]
+			perm[i], perm[otherIdx] = other, t
+			newLoss := f(perm)
+			if newLoss > loss {
+				loss = newLoss
+				inverse[t], inverse[other] = otherIdx, T(i)
+			} else {
+				perm[i], perm[otherIdx] = t, other
+			}
+		}
+	}
+	return perm
 }
