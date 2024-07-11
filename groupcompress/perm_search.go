@@ -1,16 +1,10 @@
 package groupcompress
 
 import (
+	"math"
 	"math/rand"
 	"sort"
 )
-
-// A PermObjectiveFunc returns a deterministic value for a
-// permutation over N elements, the higher the better.
-//
-// Objective functions are not necessarily safe to call
-// concurrently from multiple Goroutines.
-type PermObjectiveFunc[T BitPattern] func(p []T) float64
 
 // A PermSearch implements an algorithm for optimizing an
 // objective over the space of permutations.
@@ -19,7 +13,7 @@ type PermSearch[T BitPattern] interface {
 	// The size argument indicates the number of elements
 	// in the permutation.
 	// The rng may be used as part of the search.
-	Search(rng *rand.Rand, size int, f PermObjectiveFunc[T]) []T
+	Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T
 }
 
 // RandomPermSearch is a PermSearch which samples random
@@ -30,7 +24,7 @@ type RandomPermSearch[T BitPattern] struct {
 
 // Search tries r.Samples permutations and returns the one
 // with the best objective value.
-func (r *RandomPermSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiveFunc[T]) []T {
+func (r *RandomPermSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
 	var bestPerm []T
 	var bestObj float64
 	for i := 0; i < r.Samples; i++ {
@@ -38,7 +32,7 @@ func (r *RandomPermSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiveFu
 		for i, x := range rng.Perm(len(perm)) {
 			perm[i] = T(x)
 		}
-		obj := f(perm)
+		obj := -e.PermutedBitwiseEntropy(perm)
 		if obj > bestObj || i == 0 {
 			bestPerm = perm
 			bestObj = obj
@@ -70,11 +64,11 @@ type EvoPermSearch[T BitPattern] struct {
 }
 
 // Search performs evolutionary search.
-func (e *EvoPermSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiveFunc[T]) []T {
+func (e *EvoPermSearch[T]) Search(rng *rand.Rand, size int, ec *EntropyCounter[T]) []T {
 	if e.Generations == 0 {
 		return (&RandomPermSearch[T]{
 			Samples: e.Population * (1 + e.Mutations),
-		}).Search(rng, size, f)
+		}).Search(rng, size, ec)
 	}
 
 	population := make(evoPopulation[T], e.Population*(1+e.Mutations))
@@ -90,7 +84,7 @@ func (e *EvoPermSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiveFunc[
 				p.Perm[j] = T(x)
 			}
 		}
-		p.Value = f(p.Perm)
+		p.Value = -ec.PermutedBitwiseEntropy(p.Perm)
 		population[i] = p
 	}
 	sort.Sort(population)
@@ -111,7 +105,7 @@ func (e *EvoPermSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiveFunc[
 					}
 					child.Perm[i1], child.Perm[i2] = child.Perm[i2], child.Perm[i1]
 				}
-				child.Value = f(child.Perm)
+				child.Value = -ec.PermutedBitwiseEntropy(child.Perm)
 			}
 		}
 		sort.Sort(population)
@@ -140,19 +134,19 @@ func (e evoPopulation[T]) Swap(i, j int) {
 
 type GreedyBitwiseSearch[T BitPattern] struct{}
 
-func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiveFunc[T]) []T {
+func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
 	perm := make([]T, size)
 	for i := range perm {
 		perm[i] = T(i)
 	}
-	loss := f(perm)
+	loss := -e.PermutedBitwiseEntropy(perm)
 	inverse := append([]T{}, perm...)
 	for bitMask := uint64(1); (1 << bitMask) < size; bitMask <<= 1 {
 		for i, t := range perm {
 			other := t ^ T(bitMask)
 			otherIdx := inverse[other]
 			perm[i], perm[otherIdx] = other, t
-			newLoss := f(perm)
+			newLoss := -e.PermutedBitwiseEntropy(perm)
 			if newLoss > loss {
 				loss = newLoss
 				inverse[t], inverse[other] = otherIdx, T(i)
@@ -161,5 +155,38 @@ func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, f PermObjectiv
 			}
 		}
 	}
+	return perm
+}
+
+type SingleBitPartitionSearch[T BitPattern] struct{}
+
+func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
+	perm := make([]T, size)
+
+	setGreedyPermutation := func(bit T) {
+		for i := range perm {
+			pattern := T(i)
+			if pattern&bit == 0 {
+				other := pattern ^ bit
+				if e.JointCount(pattern) > e.JointCount(other) {
+					perm[i], perm[other] = other, pattern
+				} else {
+					perm[i], perm[other] = pattern, other
+				}
+			}
+		}
+	}
+
+	bestObj := math.Inf(-1)
+	var bestMask T
+	for bitMask := uint64(1); (1 << bitMask) < size; bitMask <<= 1 {
+		setGreedyPermutation(T(bitMask))
+		obj := -e.PermutedBitwiseEntropy(perm)
+		if obj > bestObj {
+			bestObj = obj
+			bestMask = T(bitMask)
+		}
+	}
+	setGreedyPermutation(bestMask)
 	return perm
 }

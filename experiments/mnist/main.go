@@ -25,7 +25,8 @@ func main() {
 	var batchSize int
 	var numBits int
 	var samples int
-	var permSearch groupcompress.EvoPermSearch[uint8]
+	var searchType string
+	var evoSearch groupcompress.EvoPermSearch[uint8]
 
 	// Sampling
 	var sampleGrid int
@@ -35,19 +36,31 @@ func main() {
 	flag.IntVar(&batchSize, "batch-size", 128, "examples per layer")
 	flag.IntVar(&numBits, "num-bits", 3, "bits per group")
 	flag.IntVar(&samples, "samples", 100000, "groups to sample")
-	flag.IntVar(&permSearch.Generations, "perm-generations", 0,
+	flag.StringVar(&searchType, "search-type", "evo", "options: evo, greedybit, singlebit")
+	flag.IntVar(&evoSearch.Generations, "perm-generations", 0,
 		"generations of evolutionary permutation search")
-	flag.IntVar(&permSearch.Population, "perm-population", 1000,
+	flag.IntVar(&evoSearch.Population, "perm-population", 1000,
 		"population of evolutionary permutation search")
-	flag.IntVar(&permSearch.Mutations, "perm-mutations", 0,
+	flag.IntVar(&evoSearch.Mutations, "perm-mutations", 0,
 		"mutations per example in evolutionary permutation search")
-	flag.IntVar(&permSearch.MaxSwapsPerMutation, "perm-swaps", 5,
+	flag.IntVar(&evoSearch.MaxSwapsPerMutation, "perm-swaps", 5,
 		"maximum swaps per mutation in evolutionary permutation search")
 	flag.IntVar(&sampleGrid, "sample-grid", 4, "size of sample grid")
 	flag.IntVar(&priorSamples, "prior-samples", 60000, "number of samples to compute prior")
 	flag.StringVar(&samplePath, "sample-path", "samples.png", "path of samples output image")
 	flag.StringVar(&savePath, "save-path", "model.json", "path to save model checkpoint")
 	flag.Parse()
+
+	var permSearch groupcompress.PermSearch[uint8]
+	if searchType == "evo" {
+		permSearch = &evoSearch
+	} else if searchType == "greedybit" {
+		permSearch = &groupcompress.GreedyBitwiseSearch[uint8]{}
+	} else if searchType == "singlebit" {
+		permSearch = &groupcompress.SingleBitPartitionSearch[uint8]{}
+	} else {
+		essentials.Die("unsupported search type:", searchType)
+	}
 
 	var model Model
 
@@ -71,7 +84,7 @@ func main() {
 			batch,
 			numBits,
 			samples,
-			&permSearch,
+			permSearch,
 		)
 		log.Printf("step %d: loss=%f reduction=%f", len(model), initEntropy*28*28, result.EntropyReduction())
 		model = append(model, result.Transform)

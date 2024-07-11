@@ -76,15 +76,8 @@ func entropySearch[T BitPattern](
 			continue
 		}
 
-		deltaFunc := func(perm []T) float64 {
-			return bitwiseOld - entropyCounter.PermutedBitwiseEntropy(perm)
-		}
-		bestPerm := permSearch.Search(
-			rng,
-			1<<uint(numBits),
-			deltaFunc,
-		)
-		bestDelta := deltaFunc(bestPerm)
+		bestPerm := permSearch.Search(rng, 1<<uint(numBits), entropyCounter)
+		bestDelta := bitwiseOld - entropyCounter.PermutedBitwiseEntropy(bestPerm)
 
 		if bestDelta >= best.EntropyReduction() || i == 0 {
 			best = EntropySearchResult[T]{

@@ -90,3 +90,7 @@ func (e *EntropyCounter[T]) PermutedBitwiseEntropy(perm []T) float64 {
 	}
 	return e.BitwiseEntropy()
 }
+
+func (e *EntropyCounter[T]) JointCount(x T) int {
+	return e.jointCounts[x]
+}
