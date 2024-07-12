@@ -23,6 +23,7 @@ func EntropySearch[T BitPattern](
 	numBits int,
 	samples int,
 	permSearch PermSearch[T],
+	prefix []int,
 ) *EntropySearchResult[T] {
 	workers := runtime.GOMAXPROCS(0)
 	if workers > samples {
@@ -37,7 +38,7 @@ func EntropySearch[T BitPattern](
 		}
 		rng := rand.New(rand.NewSource(rand.Int63()))
 		go func() {
-			results <- entropySearch[T](rng, data, numBits, samplesPerWorker, permSearch)
+			results <- entropySearch[T](rng, data, numBits, samplesPerWorker, prefix, permSearch)
 		}()
 	}
 	var best *EntropySearchResult[T]
@@ -55,6 +56,7 @@ func entropySearch[T BitPattern](
 	data []*BitString,
 	numBits int,
 	samples int,
+	prefix []int,
 	permSearch PermSearch[T],
 ) *EntropySearchResult[T] {
 	var best EntropySearchResult[T]
@@ -63,7 +65,7 @@ func entropySearch[T BitPattern](
 	entropyCounter := NewEntropyCounter[T](numBits)
 
 	for i := 0; i < samples; i++ {
-		indices := sampleIndices(rng, data[0].NumBits, numBits)
+		indices := sampleIndices(rng, data[0].NumBits, numBits, prefix)
 
 		entropyCounter.Reset()
 		for _, datum := range data {
@@ -94,9 +96,10 @@ func entropySearch[T BitPattern](
 	return &best
 }
 
-func sampleIndices(rng *rand.Rand, dim, count int) []int {
+func sampleIndices(rng *rand.Rand, dim, count int, prefix []int) []int {
 	indices := make([]int, 0, count)
-	for i := 0; i < count; i++ {
+	indices = append(indices, prefix...)
+	for i := len(prefix); i < count; i++ {
 		n := rng.Intn(dim - i)
 		for _, j := range indices {
 			if n >= j {

@@ -24,6 +24,7 @@ func main() {
 	// Hyperparameters
 	var batchSize int
 	var numBits int
+	var bitChunkSize int
 	var samples int
 	var searchType string
 	var evoSearch groupcompress.EvoPermSearch[uint8]
@@ -35,6 +36,7 @@ func main() {
 
 	flag.IntVar(&batchSize, "batch-size", 128, "examples per layer")
 	flag.IntVar(&numBits, "num-bits", 3, "bits per group")
+	flag.IntVar(&bitChunkSize, "bit-chunk-size", 0, "bits to greedily search at a time")
 	flag.IntVar(&samples, "samples", 100000, "groups to sample")
 	flag.StringVar(&searchType, "search-type", "evo", "options: evo, greedybit, singlebit")
 	flag.IntVar(&evoSearch.Generations, "perm-generations", 0,
@@ -80,12 +82,29 @@ func main() {
 			}
 		}
 		initEntropy := groupcompress.MeanBitwiseEntropy(batch)
-		result := groupcompress.EntropySearch[uint8](
-			batch,
-			numBits,
-			samples,
-			permSearch,
-		)
+		var result *groupcompress.EntropySearchResult[uint8]
+		if bitChunkSize == 0 {
+			result = groupcompress.EntropySearch[uint8](
+				batch,
+				numBits,
+				samples,
+				permSearch,
+				nil,
+			)
+		} else {
+			var prefix []int
+			for len(prefix) < numBits {
+				targetNumBits := essentials.MinInt(numBits, len(prefix)+bitChunkSize)
+				result = groupcompress.EntropySearch[uint8](
+					batch,
+					targetNumBits,
+					samples,
+					permSearch,
+					prefix,
+				)
+				prefix = result.Transform.Indices
+			}
+		}
 		log.Printf("step %d: loss=%f reduction=%f", len(model), initEntropy*28*28, result.EntropyReduction())
 		model = append(model, result.Transform)
 
