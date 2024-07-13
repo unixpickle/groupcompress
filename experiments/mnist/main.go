@@ -16,64 +16,96 @@ import (
 	"github.com/unixpickle/mnistlite"
 )
 
-type Model = groupcompress.TransformList[uint8]
+type Model[T groupcompress.BitPattern] groupcompress.TransformList[T]
 
-func main() {
-	var savePath string
+func (m Model[T]) Inverse() Model[T] {
+	return Model[T](groupcompress.TransformList[T](m).Inverse())
+}
+
+func (m Model[T]) Apply(b *groupcompress.BitString) {
+	groupcompress.TransformList[T](m).Apply(b)
+}
+
+type Args[T groupcompress.BitPattern] struct {
+	SavePath string
 
 	// Hyperparameters
-	var batchSize int
-	var numBits int
-	var bitChunkSize int
-	var samples int
-	var searchType string
-	var evoSearch groupcompress.EvoPermSearch[uint8]
+	BatchSize    int
+	NumBits      int
+	BitChunkSize int
+	Samples      int
+	SearchType   string
+	EvoSearch    groupcompress.EvoPermSearch[T]
 
 	// Sampling
-	var sampleGrid int
-	var priorSamples int
-	var samplePath string
+	SampleGrid   int
+	PriorSamples int
+	SamplePath   string
+}
 
-	flag.IntVar(&batchSize, "batch-size", 128, "examples per layer")
-	flag.IntVar(&numBits, "num-bits", 3, "bits per group")
-	flag.IntVar(&bitChunkSize, "bit-chunk-size", 0, "bits to greedily search at a time")
-	flag.IntVar(&samples, "samples", 100000, "groups to sample")
-	flag.StringVar(&searchType, "search-type", "evo", "options: evo, greedybit, singlebit")
-	flag.IntVar(&evoSearch.Generations, "perm-generations", 0,
+func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
+	fs.IntVar(&a.BatchSize, "batch-size", 128, "examples per layer")
+	fs.IntVar(&a.NumBits, "num-bits", 3, "bits per group")
+	fs.IntVar(&a.BitChunkSize, "bit-chunk-size", 0, "bits to greedily search at a time")
+	fs.IntVar(&a.Samples, "samples", 100000, "groups to sample")
+	fs.StringVar(&a.SearchType, "search-type", "evo", "options: evo, greedybit, singlebit")
+	fs.IntVar(&a.EvoSearch.Generations, "perm-generations", 0,
 		"generations of evolutionary permutation search")
-	flag.IntVar(&evoSearch.Population, "perm-population", 1000,
+	fs.IntVar(&a.EvoSearch.Population, "perm-population", 1000,
 		"population of evolutionary permutation search")
-	flag.IntVar(&evoSearch.Mutations, "perm-mutations", 0,
+	fs.IntVar(&a.EvoSearch.Mutations, "perm-mutations", 0,
 		"mutations per example in evolutionary permutation search")
-	flag.IntVar(&evoSearch.MaxSwapsPerMutation, "perm-swaps", 5,
+	fs.IntVar(&a.EvoSearch.MaxSwapsPerMutation, "perm-swaps", 5,
 		"maximum swaps per mutation in evolutionary permutation search")
-	flag.IntVar(&sampleGrid, "sample-grid", 4, "size of sample grid")
-	flag.IntVar(&priorSamples, "prior-samples", 60000, "number of samples to compute prior")
-	flag.StringVar(&samplePath, "sample-path", "samples.png", "path of samples output image")
-	flag.StringVar(&savePath, "save-path", "model.json", "path to save model checkpoint")
+	fs.IntVar(&a.SampleGrid, "sample-grid", 4, "size of sample grid")
+	fs.IntVar(&a.PriorSamples, "prior-samples", 60000, "number of samples to compute prior")
+	fs.StringVar(&a.SamplePath, "sample-path", "samples.png", "path of samples output image")
+	fs.StringVar(&a.SavePath, "save-path", "model.json", "path to save model checkpoint")
+}
+
+func main() {
+	// Attempt to figure out bit size to use.
+	fs := flag.NewFlagSet("mnist", flag.ContinueOnError)
+	dummyArgs := &Args[uint8]{}
+	dummyArgs.AddToFlags(fs)
+	fs.Parse(os.Args[1:])
+	if dummyArgs.NumBits <= 8 {
+		Main[uint8]()
+	} else if dummyArgs.NumBits <= 16 {
+		Main[uint16]()
+	} else if dummyArgs.NumBits <= 32 {
+		Main[uint32]()
+	} else {
+		essentials.Die("cannot operate on > 32 bits.")
+	}
+}
+
+func Main[T groupcompress.BitPattern]() {
+	var a Args[T]
+	a.AddToFlags(flag.CommandLine)
 	flag.Parse()
 
-	var permSearch groupcompress.PermSearch[uint8]
-	if searchType == "evo" {
-		permSearch = &evoSearch
-	} else if searchType == "greedybit" {
-		permSearch = &groupcompress.GreedyBitwiseSearch[uint8]{}
-	} else if searchType == "singlebit" {
-		permSearch = &groupcompress.SingleBitPartitionSearch[uint8]{}
+	var permSearch groupcompress.PermSearch[T]
+	if a.SearchType == "evo" {
+		permSearch = &a.EvoSearch
+	} else if a.SearchType == "greedybit" {
+		permSearch = &groupcompress.GreedyBitwiseSearch[T]{}
+	} else if a.SearchType == "singlebit" {
+		permSearch = &groupcompress.SingleBitPartitionSearch[T]{}
 	} else {
-		essentials.Die("unsupported search type:", searchType)
+		essentials.Die("unsupported search type:", a.SearchType)
 	}
 
-	var model Model
+	var model Model[T]
 
-	if _, err := os.Stat(savePath); err == nil {
-		log.Printf("Loading checkpoint: %s ...", savePath)
-		data, err := os.ReadFile(savePath)
+	if _, err := os.Stat(a.SavePath); err == nil {
+		log.Printf("Loading checkpoint: %s ...", a.SavePath)
+		data, err := os.ReadFile(a.SavePath)
 		essentials.Must(err)
 		essentials.Must(json.Unmarshal(data, &model))
 	}
 
-	batches := LoadBatches(batchSize)
+	batches := LoadBatches(a.BatchSize)
 	for {
 		batch := <-batches
 		for _, example := range batch {
@@ -82,23 +114,23 @@ func main() {
 			}
 		}
 		initEntropy := groupcompress.MeanBitwiseEntropy(batch)
-		var result *groupcompress.EntropySearchResult[uint8]
-		if bitChunkSize == 0 {
-			result = groupcompress.EntropySearch[uint8](
+		var result *groupcompress.EntropySearchResult[T]
+		if a.BitChunkSize == 0 {
+			result = groupcompress.EntropySearch[T](
 				batch,
-				numBits,
-				samples,
+				a.NumBits,
+				a.Samples,
 				permSearch,
 				nil,
 			)
 		} else {
 			var prefix []int
-			for len(prefix) < numBits {
-				targetNumBits := essentials.MinInt(numBits, len(prefix)+bitChunkSize)
-				result = groupcompress.EntropySearch[uint8](
+			for len(prefix) < a.NumBits {
+				targetNumBits := essentials.MinInt(a.NumBits, len(prefix)+a.BitChunkSize)
+				result = groupcompress.EntropySearch[T](
 					batch,
 					targetNumBits,
-					samples,
+					a.Samples,
 					permSearch,
 					prefix,
 				)
@@ -108,23 +140,23 @@ func main() {
 		log.Printf("step %d: loss=%f reduction=%f", len(model), initEntropy*28*28, result.EntropyReduction())
 		model = append(model, result.Transform)
 
-		prior := EstimatePrior(batches, model, priorSamples)
+		prior := EstimatePrior(batches, model, a.PriorSamples)
 		var samples []*groupcompress.BitString
-		for i := 0; i < sampleGrid*sampleGrid; i++ {
+		for i := 0; i < a.SampleGrid*a.SampleGrid; i++ {
 			samples = append(samples, Sample(prior, model))
 		}
-		WriteGrid(samplePath, samples)
+		WriteGrid(a.SamplePath, samples)
 
 		data, err := json.Marshal(model)
 		essentials.Must(err)
-		essentials.Must(os.WriteFile(savePath+".tmp", data, 0644))
-		essentials.Must(os.Rename(savePath+".tmp", savePath))
+		essentials.Must(os.WriteFile(a.SavePath+".tmp", data, 0644))
+		essentials.Must(os.Rename(a.SavePath+".tmp", a.SavePath))
 	}
 }
 
-func EstimatePrior(
+func EstimatePrior[T groupcompress.BitPattern](
 	batches <-chan []*groupcompress.BitString,
-	model Model,
+	model Model[T],
 	numSamples int,
 ) []float64 {
 	counts := make([]float64, 28*28)
@@ -153,7 +185,7 @@ OuterLoop:
 	return counts
 }
 
-func Sample(prior []float64, model Model) *groupcompress.BitString {
+func Sample[T groupcompress.BitPattern](prior []float64, model Model[T]) *groupcompress.BitString {
 	result := groupcompress.NewBitString(len(prior))
 	for i, p := range prior {
 		if rand.Float64() < p {
