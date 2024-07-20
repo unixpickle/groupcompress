@@ -137,7 +137,25 @@ func Main[T groupcompress.BitPattern]() {
 				prefix = result.Transform.Indices
 			}
 		}
-		log.Printf("step %d: loss=%f reduction=%f", len(model), initEntropy*28*28, result.EntropyReduction())
+
+		validBatch := <-batches
+		for _, example := range validBatch {
+			for _, layer := range model {
+				layer.Apply(example)
+			}
+		}
+		validStart := groupcompress.MeanBitwiseEntropy(validBatch)
+		for _, example := range validBatch {
+			result.Transform.Apply(example)
+		}
+		validEnd := groupcompress.MeanBitwiseEntropy(validBatch)
+		log.Printf(
+			"step %d: loss=%f reduction=%f valid_reduction=%f",
+			len(model)-1,
+			initEntropy*28*28,
+			result.EntropyReduction(),
+			(validStart-validEnd)*28*28,
+		)
 		model = append(model, result.Transform)
 
 		prior := EstimatePrior(batches, model, a.PriorSamples)
