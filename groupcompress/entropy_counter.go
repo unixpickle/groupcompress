@@ -1,19 +1,22 @@
 package groupcompress
 
-import "math"
+import (
+	"math"
+	"math/bits"
+)
 
 // An EntropyCounter computes the bitwise or joint entropy
 // of a sequence of bit patterns in a rolling fashion.
 type EntropyCounter[T BitPattern] struct {
-	singleCounts []int
-	jointCounts  []int
-	count        int
+	singleCounts []float64
+	jointCounts  []float64
+	count        float64
 }
 
 func NewEntropyCounter[T BitPattern](numBits int) *EntropyCounter[T] {
 	return &EntropyCounter[T]{
-		singleCounts: make([]int, numBits),
-		jointCounts:  make([]int, 1<<uint(numBits)),
+		singleCounts: make([]float64, numBits),
+		jointCounts:  make([]float64, 1<<uint(numBits)),
 	}
 }
 
@@ -47,7 +50,7 @@ func (e *EntropyCounter[T]) BitwiseEntropy() float64 {
 		if count == 0 || count == e.count {
 			continue
 		}
-		probTrue := float64(count) / float64(e.count)
+		probTrue := count / e.count
 		probFalse := 1 - probTrue
 		entropy -= probTrue*math.Log(probTrue) + probFalse*math.Log(probFalse)
 	}
@@ -62,7 +65,7 @@ func (e *EntropyCounter[T]) JointEntropy() float64 {
 		if count == 0 {
 			continue
 		}
-		prob := float64(count) / float64(e.count)
+		prob := count / e.count
 		entropy -= prob * math.Log(prob)
 	}
 	return entropy
@@ -91,6 +94,40 @@ func (e *EntropyCounter[T]) PermutedBitwiseEntropy(perm []T) float64 {
 	return e.BitwiseEntropy()
 }
 
-func (e *EntropyCounter[T]) JointCount(x T) int {
+// Smooth copies other and readjusts the probabilities
+// under the assumption that bits will be randomly and
+// independently flipped with the given probability.
+func (e *EntropyCounter[T]) Smooth(other *EntropyCounter[T], flipProb float64) {
+	for i := range e.jointCounts {
+		e.jointCounts[i] = 0
+	}
+	for i, count := range other.jointCounts {
+		pattern := T(i)
+		for j := range other.jointCounts {
+			pattern1 := T(j)
+			numFlipped := bits.OnesCount64(uint64(pattern ^ pattern1))
+			weight := math.Pow(flipProb, float64(numFlipped)) *
+				math.Pow(1-flipProb, float64(len(e.singleCounts)-numFlipped))
+			e.jointCounts[pattern1] += count * weight
+		}
+	}
+
+	// Recompute bitwise probs
+	for i := range e.singleCounts {
+		e.singleCounts[i] = 0
+	}
+	for i, count := range e.jointCounts {
+		outVal := T(i)
+		for j, x := range e.singleCounts {
+			if outVal&(1<<uint(j)) != 0 {
+				e.singleCounts[j] = x + count
+			}
+		}
+	}
+
+	e.count = other.count
+}
+
+func (e *EntropyCounter[T]) JointCount(x T) float64 {
 	return e.jointCounts[x]
 }

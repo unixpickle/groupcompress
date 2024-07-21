@@ -34,6 +34,7 @@ type Args[T groupcompress.BitPattern] struct {
 	NumBits      int
 	BitChunkSize int
 	Samples      int
+	Smoothing    float64
 	SearchType   string
 	EvoSearch    groupcompress.EvoPermSearch[T]
 
@@ -48,6 +49,7 @@ func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
 	fs.IntVar(&a.NumBits, "num-bits", 3, "bits per group")
 	fs.IntVar(&a.BitChunkSize, "bit-chunk-size", 0, "bits to greedily search at a time")
 	fs.IntVar(&a.Samples, "samples", 100000, "groups to sample")
+	fs.Float64Var(&a.Smoothing, "smoothing", 0.0, "bit flip probability for search")
 	fs.StringVar(&a.SearchType, "search-type", "evo", "options: evo, greedybit, singlebit")
 	fs.IntVar(&a.EvoSearch.Generations, "perm-generations", 0,
 		"generations of evolutionary permutation search")
@@ -122,6 +124,7 @@ func Main[T groupcompress.BitPattern]() {
 				a.Samples,
 				permSearch,
 				nil,
+				a.Smoothing,
 			)
 		} else {
 			var prefix []int
@@ -133,6 +136,7 @@ func Main[T groupcompress.BitPattern]() {
 					a.Samples,
 					permSearch,
 					prefix,
+					a.Smoothing,
 				)
 				prefix = result.Transform.Indices
 			}
@@ -153,7 +157,7 @@ func Main[T groupcompress.BitPattern]() {
 			"step %d: loss=%f reduction=%f valid_reduction=%f",
 			len(model)-1,
 			initEntropy*28*28,
-			result.EntropyReduction(),
+			result.RawDeltas.Reduction(),
 			(validStart-validEnd)*28*28,
 		)
 		model = append(model, result.Transform)
