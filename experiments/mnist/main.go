@@ -30,13 +30,14 @@ type Args[T groupcompress.BitPattern] struct {
 	SavePath string
 
 	// Hyperparameters
-	BatchSize    int
-	NumBits      int
-	BitChunkSize int
-	Samples      int
-	Smoothing    float64
-	SearchType   string
-	EvoSearch    groupcompress.EvoPermSearch[T]
+	BatchSize         int
+	NumBits           int
+	BitChunkSize      int
+	Samples           int
+	Smoothing         float64
+	SearchType        string
+	PermMinDifference float64
+	EvoSearch         groupcompress.EvoPermSearch[T]
 
 	// Sampling
 	SampleGrid   int
@@ -51,6 +52,8 @@ func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
 	fs.IntVar(&a.Samples, "samples", 100000, "groups to sample")
 	fs.Float64Var(&a.Smoothing, "smoothing", 0.0, "bit flip probability for search")
 	fs.StringVar(&a.SearchType, "search-type", "evo", "options: evo, greedybit, singlebit")
+	fs.Float64Var(&a.PermMinDifference, "perm-min-difference", 0.0,
+		"minimum count differential for swap (greedybit, singlebit)")
 	fs.IntVar(&a.EvoSearch.Generations, "perm-generations", 0,
 		"generations of evolutionary permutation search")
 	fs.IntVar(&a.EvoSearch.Population, "perm-population", 1000,
@@ -63,6 +66,22 @@ func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
 	fs.IntVar(&a.PriorSamples, "prior-samples", 60000, "number of samples to compute prior")
 	fs.StringVar(&a.SamplePath, "sample-path", "samples.png", "path of samples output image")
 	fs.StringVar(&a.SavePath, "save-path", "model.json", "path to save model checkpoint")
+}
+
+func (a *Args[T]) PermSearch() groupcompress.PermSearch[T] {
+	if a.SearchType == "evo" {
+		if a.PermMinDifference != 0 {
+			essentials.Die("-perm-min-difference does nothing with -search-type 'evo'")
+		}
+		return &a.EvoSearch
+	} else if a.SearchType == "greedybit" {
+		return &groupcompress.GreedyBitwiseSearch[T]{MinDifference: a.PermMinDifference}
+	} else if a.SearchType == "singlebit" {
+		return &groupcompress.SingleBitPartitionSearch[T]{MinDifference: a.PermMinDifference}
+	} else {
+		essentials.Die("unsupported search type:", a.SearchType)
+		panic("unreachable")
+	}
 }
 
 func main() {
@@ -87,16 +106,7 @@ func Main[T groupcompress.BitPattern]() {
 	a.AddToFlags(flag.CommandLine)
 	flag.Parse()
 
-	var permSearch groupcompress.PermSearch[T]
-	if a.SearchType == "evo" {
-		permSearch = &a.EvoSearch
-	} else if a.SearchType == "greedybit" {
-		permSearch = &groupcompress.GreedyBitwiseSearch[T]{}
-	} else if a.SearchType == "singlebit" {
-		permSearch = &groupcompress.SingleBitPartitionSearch[T]{}
-	} else {
-		essentials.Die("unsupported search type:", a.SearchType)
-	}
+	permSearch := a.PermSearch()
 
 	var model Model[T]
 

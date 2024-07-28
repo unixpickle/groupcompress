@@ -132,7 +132,9 @@ func (e evoPopulation[T]) Swap(i, j int) {
 	e[i], e[j] = e[j], e[i]
 }
 
-type GreedyBitwiseSearch[T BitPattern] struct{}
+type GreedyBitwiseSearch[T BitPattern] struct {
+	MinDifference float64
+}
 
 func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
 	perm := make([]T, size)
@@ -145,6 +147,9 @@ func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCoun
 		for i, t := range perm {
 			other := t ^ T(bitMask)
 			otherIdx := inverse[other]
+			if math.Abs(e.JointCount(t)-e.JointCount(other)) < g.MinDifference {
+				continue
+			}
 			perm[i], perm[otherIdx] = other, t
 			newLoss := -e.PermutedBitwiseEntropy(perm)
 			if newLoss > loss {
@@ -158,21 +163,34 @@ func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCoun
 	return perm
 }
 
-type SingleBitPartitionSearch[T BitPattern] struct{}
+type SingleBitPartitionSearch[T BitPattern] struct {
+	MinDifference float64
+}
 
 func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
 	perm := make([]T, size)
 
 	setGreedyPermutation := func(bit T) {
+		diffSum := 0.0
+		oldDiffSum := 0.0
 		for i := range perm {
 			pattern := T(i)
 			if pattern&bit == 0 {
 				other := pattern ^ bit
-				if e.JointCount(pattern) > e.JointCount(other) {
+				diff := e.JointCount(pattern) - e.JointCount(other)
+				diffSum += math.Abs(diff)
+				oldDiffSum += diff
+				if diff > 0 {
 					perm[i], perm[other] = other, pattern
 				} else {
 					perm[i], perm[other] = pattern, other
 				}
+			}
+		}
+		if diffSum-math.Abs(oldDiffSum) < g.MinDifference {
+			// Revert to identity for small sample-sized improvements
+			for i := range perm {
+				perm[i] = T(i)
 			}
 		}
 	}
