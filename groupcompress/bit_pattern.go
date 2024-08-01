@@ -1,11 +1,9 @@
 package groupcompress
 
-type BitPattern interface {
-	uint8 | uint16 | uint32
-}
+type BitPattern uint64
 
-func ExtractBitPattern[T BitPattern](s *BitString, indices []int) T {
-	var result T
+func ExtractBitPattern(s *BitString, indices []int) BitPattern {
+	var result BitPattern
 	for i, j := range indices {
 		bit := s.Get(j)
 		if bit {

@@ -16,8 +16,8 @@ func (e *EntropyDeltas) Reduction() float64 {
 	return e.OldBitwise - e.NewBitwise
 }
 
-type EntropySearchResult[T BitPattern] struct {
-	Transform *Transform[T]
+type EntropySearchResult struct {
+	Transform *Transform
 
 	// Deltas is the (smoothed) entropy deltas.
 	Deltas EntropyDeltas
@@ -28,20 +28,20 @@ type EntropySearchResult[T BitPattern] struct {
 }
 
 // EntropySearch finds a transformation that reduces
-func EntropySearch[T BitPattern](
+func EntropySearch(
 	data []*BitString,
 	numBits int,
 	samples int,
-	permSearch PermSearch[T],
+	permSearch PermSearch,
 	prefix []int,
 	flipProb float64,
-) *EntropySearchResult[T] {
+) *EntropySearchResult {
 	workers := runtime.GOMAXPROCS(0)
 	if workers > samples {
 		workers = samples
 	}
 	nExtra := samples % workers
-	results := make(chan *EntropySearchResult[T], workers)
+	results := make(chan *EntropySearchResult, workers)
 	for i := 0; i < workers; i++ {
 		samplesPerWorker := samples / workers
 		if i < nExtra {
@@ -49,11 +49,11 @@ func EntropySearch[T BitPattern](
 		}
 		rng := rand.New(rand.NewSource(rand.Int63()))
 		go func() {
-			results <- entropySearch[T](rng, data, numBits, samplesPerWorker, permSearch, prefix,
+			results <- entropySearch(rng, data, numBits, samplesPerWorker, permSearch, prefix,
 				flipProb)
 		}()
 	}
-	var best *EntropySearchResult[T]
+	var best *EntropySearchResult
 	for i := 0; i < workers; i++ {
 		result := <-results
 		if best == nil || result.Deltas.Reduction() > best.Deltas.Reduction() {
@@ -63,27 +63,27 @@ func EntropySearch[T BitPattern](
 	return best
 }
 
-func entropySearch[T BitPattern](
+func entropySearch(
 	rng *rand.Rand,
 	data []*BitString,
 	numBits int,
 	samples int,
-	permSearch PermSearch[T],
+	permSearch PermSearch,
 	prefix []int,
 	flipProb float64,
-) *EntropySearchResult[T] {
-	var best EntropySearchResult[T]
+) *EntropySearchResult {
+	var best EntropySearchResult
 
 	// Pre-allocate and reuse
-	entropyCounter := NewEntropyCounter[T](numBits)
-	smoothCounter := NewEntropyCounter[T](numBits)
+	entropyCounter := NewEntropyCounter(numBits)
+	smoothCounter := NewEntropyCounter(numBits)
 
 	for i := 0; i < samples; i++ {
 		indices := sampleIndices(rng, data[0].NumBits, numBits, prefix)
 
 		entropyCounter.Reset()
 		for _, datum := range data {
-			pattern := ExtractBitPattern[T](datum, indices)
+			pattern := ExtractBitPattern(datum, indices)
 			entropyCounter.Add(pattern)
 		}
 		bitwiseOld := entropyCounter.BitwiseEntropy()
@@ -100,8 +100,8 @@ func entropySearch[T BitPattern](
 		bestDelta := smoothBitwiseOld - smoothCounter.PermutedBitwiseEntropy(bestPerm)
 
 		if bestDelta >= best.Deltas.Reduction() || i == 0 {
-			best = EntropySearchResult[T]{
-				Transform: &Transform[T]{
+			best = EntropySearchResult{
+				Transform: &Transform{
 					Indices: indices,
 					Mapping: bestPerm,
 				},

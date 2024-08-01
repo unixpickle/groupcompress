@@ -8,29 +8,29 @@ import (
 
 // A PermSearch implements an algorithm for optimizing an
 // objective over the space of permutations.
-type PermSearch[T BitPattern] interface {
+type PermSearch interface {
 	// Search finds a permutation to maximize f.
 	// The size argument indicates the number of elements
 	// in the permutation.
 	// The rng may be used as part of the search.
-	Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T
+	Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern
 }
 
 // RandomPermSearch is a PermSearch which samples random
 // permutations and selects the best one.
-type RandomPermSearch[T BitPattern] struct {
+type RandomPermSearch struct {
 	Samples int
 }
 
 // Search tries r.Samples permutations and returns the one
 // with the best objective value.
-func (r *RandomPermSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
-	var bestPerm []T
+func (r *RandomPermSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern {
+	var bestPerm []BitPattern
 	var bestObj float64
 	for i := 0; i < r.Samples; i++ {
-		perm := make([]T, size)
+		perm := make([]BitPattern, size)
 		for i, x := range rng.Perm(len(perm)) {
-			perm[i] = T(x)
+			perm[i] = BitPattern(x)
 		}
 		obj := -e.PermutedBitwiseEntropy(perm)
 		if obj > bestObj || i == 0 {
@@ -43,7 +43,7 @@ func (r *RandomPermSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter
 
 // EvoPermSearch is a PermSearch which uses an evolutionary
 // algorithm to gradually improve a set of permutations.
-type EvoPermSearch[T BitPattern] struct {
+type EvoPermSearch struct {
 	// Generations is the number of rounds to run the
 	// algorithm for.
 	Generations int
@@ -64,24 +64,24 @@ type EvoPermSearch[T BitPattern] struct {
 }
 
 // Search performs evolutionary search.
-func (e *EvoPermSearch[T]) Search(rng *rand.Rand, size int, ec *EntropyCounter[T]) []T {
+func (e *EvoPermSearch) Search(rng *rand.Rand, size int, ec *EntropyCounter) []BitPattern {
 	if e.Generations == 0 {
-		return (&RandomPermSearch[T]{
+		return (&RandomPermSearch{
 			Samples: e.Population * (1 + e.Mutations),
 		}).Search(rng, size, ec)
 	}
 
-	population := make(evoPopulation[T], e.Population*(1+e.Mutations))
+	population := make(evoPopulation, e.Population*(1+e.Mutations))
 	for i := range population {
-		var p evoSample[T]
-		p.Perm = make([]T, size)
+		var p evoSample
+		p.Perm = make([]BitPattern, size)
 		if i == 0 {
 			for j := range p.Perm {
-				p.Perm[j] = T(j)
+				p.Perm[j] = BitPattern(j)
 			}
 		} else {
 			for j, x := range rng.Perm(size) {
-				p.Perm[j] = T(x)
+				p.Perm[j] = BitPattern(x)
 			}
 		}
 		p.Value = -ec.PermutedBitwiseEntropy(p.Perm)
@@ -113,39 +113,39 @@ func (e *EvoPermSearch[T]) Search(rng *rand.Rand, size int, ec *EntropyCounter[T
 	return population[0].Perm
 }
 
-type evoSample[T BitPattern] struct {
-	Perm  []T
+type evoSample struct {
+	Perm  []BitPattern
 	Value float64
 }
 
-type evoPopulation[T BitPattern] []evoSample[T]
+type evoPopulation []evoSample
 
-func (e evoPopulation[T]) Len() int {
+func (e evoPopulation) Len() int {
 	return len(e)
 }
 
-func (e evoPopulation[T]) Less(i, j int) bool {
+func (e evoPopulation) Less(i, j int) bool {
 	return e[i].Value > e[j].Value
 }
 
-func (e evoPopulation[T]) Swap(i, j int) {
+func (e evoPopulation) Swap(i, j int) {
 	e[i], e[j] = e[j], e[i]
 }
 
-type GreedyBitwiseSearch[T BitPattern] struct {
+type GreedyBitwiseSearch struct {
 	MinDifference float64
 }
 
-func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
-	perm := make([]T, size)
+func (g *GreedyBitwiseSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern {
+	perm := make([]BitPattern, size)
 	for i := range perm {
-		perm[i] = T(i)
+		perm[i] = BitPattern(i)
 	}
 	loss := -e.PermutedBitwiseEntropy(perm)
-	inverse := append([]T{}, perm...)
+	inverse := append([]BitPattern{}, perm...)
 	for bitMask := uint64(1); (1 << bitMask) < size; bitMask <<= 1 {
 		for i, t := range perm {
-			other := t ^ T(bitMask)
+			other := t ^ BitPattern(bitMask)
 			otherIdx := inverse[other]
 			if math.Abs(e.JointCount(t)-e.JointCount(other)) < g.MinDifference {
 				continue
@@ -154,7 +154,7 @@ func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCoun
 			newLoss := -e.PermutedBitwiseEntropy(perm)
 			if newLoss > loss {
 				loss = newLoss
-				inverse[t], inverse[other] = otherIdx, T(i)
+				inverse[t], inverse[other] = otherIdx, BitPattern(i)
 			} else {
 				perm[i], perm[otherIdx] = t, other
 			}
@@ -163,19 +163,19 @@ func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCoun
 	return perm
 }
 
-type SingleBitPartitionSearch[T BitPattern] struct {
+type SingleBitPartitionSearch struct {
 	MinDifference float64
 	Ensemble      bool
 }
 
-func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
-	perm := make([]T, size)
+func (g *SingleBitPartitionSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern {
+	perm := make([]BitPattern, size)
 
-	setGreedyPermutation := func(bit T) {
+	setGreedyPermutation := func(bit BitPattern) {
 		diffSum := 0.0
 		oldDiffSum := 0.0
 		for i := range perm {
-			pattern := T(i)
+			pattern := BitPattern(i)
 			if pattern&bit == 0 {
 				other := pattern ^ bit
 				diff := e.JointCount(pattern) - e.JointCount(other)
@@ -191,15 +191,15 @@ func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *Entrop
 		if diffSum-math.Abs(oldDiffSum) < g.MinDifference {
 			// Revert to identity for small sample-sized improvements
 			for i := range perm {
-				perm[i] = T(i)
+				perm[i] = BitPattern(i)
 			}
 		}
 	}
 
 	bestObj := math.Inf(-1)
-	var bestMask T
+	var bestMask BitPattern
 	for i := uint(0); i < uint(e.NumBits()); i++ {
-		bitMask := T(1 << i)
+		bitMask := BitPattern(1 << i)
 		setGreedyPermutation(bitMask)
 		obj := -e.PermutedBitwiseEntropy(perm)
 		if obj > bestObj {
@@ -211,7 +211,7 @@ func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *Entrop
 	return perm
 }
 
-func (g *SingleBitPartitionSearch[T]) ShouldSwap(e *EntropyCounter[T], pattern, bit T) bool {
+func (g *SingleBitPartitionSearch) ShouldSwap(e *EntropyCounter, pattern, bit BitPattern) bool {
 	if !g.Ensemble {
 		other := pattern ^ bit
 		diff := e.JointCount(pattern) - e.JointCount(other)
@@ -220,7 +220,7 @@ func (g *SingleBitPartitionSearch[T]) ShouldSwap(e *EntropyCounter[T], pattern, 
 		numGood := 0
 		numBad := 0
 		for i := uint(0); i < uint(e.NumBits()); i++ {
-			otherBit := T(1 << i)
+			otherBit := BitPattern(1 << i)
 			if otherBit == bit {
 				continue
 			}

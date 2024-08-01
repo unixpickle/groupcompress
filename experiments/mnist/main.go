@@ -16,17 +16,9 @@ import (
 	"github.com/unixpickle/mnistlite"
 )
 
-type Model[T groupcompress.BitPattern] groupcompress.TransformList[T]
+type Model = groupcompress.TransformList
 
-func (m Model[T]) Inverse() Model[T] {
-	return Model[T](groupcompress.TransformList[T](m).Inverse())
-}
-
-func (m Model[T]) Apply(b *groupcompress.BitString) {
-	groupcompress.TransformList[T](m).Apply(b)
-}
-
-type Args[T groupcompress.BitPattern] struct {
+type Args struct {
 	SavePath string
 
 	// Hyperparameters
@@ -40,7 +32,7 @@ type Args[T groupcompress.BitPattern] struct {
 	SearchType        string
 	PermMinDifference float64
 	PermEnsemble      bool
-	EvoSearch         groupcompress.EvoPermSearch[T]
+	EvoSearch         groupcompress.EvoPermSearch
 
 	// Sampling
 	SampleGrid   int
@@ -48,7 +40,7 @@ type Args[T groupcompress.BitPattern] struct {
 	SamplePath   string
 }
 
-func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
+func (a *Args) AddToFlags(fs *flag.FlagSet) {
 	fs.IntVar(&a.BatchSize, "batch-size", 128, "examples per layer")
 	fs.IntVar(&a.NumBits, "num-bits", 3, "bits per group")
 	fs.IntVar(&a.BitChunkSize, "bit-chunk-size", 0, "bits to greedily search at a time")
@@ -73,7 +65,7 @@ func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
 	fs.StringVar(&a.SavePath, "save-path", "model.json", "path to save model checkpoint")
 }
 
-func (a *Args[T]) PermSearch() groupcompress.PermSearch[T] {
+func (a *Args) PermSearch() groupcompress.PermSearch {
 	if a.SearchType != "singlebit" && a.PermEnsemble {
 		essentials.Die("-perm-ensemble does nothing with -search-type '" + a.SearchType + "'")
 	}
@@ -83,9 +75,9 @@ func (a *Args[T]) PermSearch() groupcompress.PermSearch[T] {
 		}
 		return &a.EvoSearch
 	} else if a.SearchType == "greedybit" {
-		return &groupcompress.GreedyBitwiseSearch[T]{MinDifference: a.PermMinDifference}
+		return &groupcompress.GreedyBitwiseSearch{MinDifference: a.PermMinDifference}
 	} else if a.SearchType == "singlebit" {
-		return &groupcompress.SingleBitPartitionSearch[T]{
+		return &groupcompress.SingleBitPartitionSearch{
 			MinDifference: a.PermMinDifference,
 			Ensemble:      a.PermEnsemble,
 		}
@@ -96,30 +88,13 @@ func (a *Args[T]) PermSearch() groupcompress.PermSearch[T] {
 }
 
 func main() {
-	// Attempt to figure out bit size to use.
-	fs := flag.NewFlagSet("mnist", flag.ContinueOnError)
-	dummyArgs := &Args[uint8]{}
-	dummyArgs.AddToFlags(fs)
-	fs.Parse(os.Args[1:])
-	if dummyArgs.NumBits <= 8 {
-		Main[uint8]()
-	} else if dummyArgs.NumBits <= 16 {
-		Main[uint16]()
-	} else if dummyArgs.NumBits <= 32 {
-		Main[uint32]()
-	} else {
-		essentials.Die("cannot operate on > 32 bits.")
-	}
-}
-
-func Main[T groupcompress.BitPattern]() {
-	var a Args[T]
+	var a Args
 	a.AddToFlags(flag.CommandLine)
 	flag.Parse()
 
 	permSearch := a.PermSearch()
 
-	var model Model[T]
+	var model Model
 
 	if _, err := os.Stat(a.SavePath); err == nil {
 		log.Printf("Loading checkpoint: %s ...", a.SavePath)
@@ -137,9 +112,9 @@ func Main[T groupcompress.BitPattern]() {
 			}
 		}
 		initEntropy := groupcompress.MeanBitwiseEntropy(batch)
-		var result *groupcompress.EntropySearchResult[T]
+		var result *groupcompress.EntropySearchResult
 		if a.BitChunkSize == 0 {
-			result = groupcompress.EntropySearch[T](
+			result = groupcompress.EntropySearch(
 				batch,
 				a.NumBits,
 				a.Samples,
@@ -151,7 +126,7 @@ func Main[T groupcompress.BitPattern]() {
 			var prefix []int
 			for len(prefix) < a.NumBits {
 				targetNumBits := essentials.MinInt(a.NumBits, len(prefix)+a.BitChunkSize)
-				result = groupcompress.EntropySearch[T](
+				result = groupcompress.EntropySearch(
 					batch,
 					targetNumBits,
 					a.Samples,
@@ -199,7 +174,7 @@ func Main[T groupcompress.BitPattern]() {
 
 func EstimatePrior[T groupcompress.BitPattern](
 	batches <-chan []*groupcompress.BitString,
-	model Model[T],
+	model Model,
 	numSamples int,
 ) []float64 {
 	counts := make([]float64, 28*28)
@@ -228,7 +203,7 @@ OuterLoop:
 	return counts
 }
 
-func Sample[T groupcompress.BitPattern](prior []float64, model Model[T]) *groupcompress.BitString {
+func Sample[T groupcompress.BitPattern](prior []float64, model Model) *groupcompress.BitString {
 	result := groupcompress.NewBitString(len(prior))
 	for i, p := range prior {
 		if rand.Float64() < p {

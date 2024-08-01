@@ -7,27 +7,27 @@ import (
 
 // An EntropyCounter computes the bitwise or joint entropy
 // of a sequence of bit patterns in a rolling fashion.
-type EntropyCounter[T BitPattern] struct {
+type EntropyCounter struct {
 	singleCounts []float64
 	jointCounts  []float64
 	count        float64
 }
 
-func NewEntropyCounter[T BitPattern](numBits int) *EntropyCounter[T] {
-	return &EntropyCounter[T]{
+func NewEntropyCounter(numBits int) *EntropyCounter {
+	return &EntropyCounter{
 		singleCounts: make([]float64, numBits),
 		jointCounts:  make([]float64, 1<<uint(numBits)),
 	}
 }
 
 // NumBits returns the number of bits.
-func (e *EntropyCounter[T]) NumBits() int {
+func (e *EntropyCounter) NumBits() int {
 	return len(e.singleCounts)
 }
 
 // Reset resets the entropy counter as if it had never seen
 // any previous bit patterns.
-func (e *EntropyCounter[T]) Reset() {
+func (e *EntropyCounter) Reset() {
 	for i := range e.jointCounts {
 		e.jointCounts[i] = 0
 	}
@@ -38,7 +38,7 @@ func (e *EntropyCounter[T]) Reset() {
 }
 
 // Add adds the pattern to the tally.
-func (e *EntropyCounter[T]) Add(pattern T) {
+func (e *EntropyCounter) Add(pattern BitPattern) {
 	for i := range e.singleCounts {
 		if pattern&(1<<i) != 0 {
 			e.singleCounts[i]++
@@ -49,7 +49,7 @@ func (e *EntropyCounter[T]) Add(pattern T) {
 }
 
 // BitwiseEntropy returns the summed bitwise entropy.
-func (e *EntropyCounter[T]) BitwiseEntropy() float64 {
+func (e *EntropyCounter) BitwiseEntropy() float64 {
 	var entropy float64
 	for _, count := range e.singleCounts {
 		if count == 0 || count == e.count {
@@ -64,7 +64,7 @@ func (e *EntropyCounter[T]) BitwiseEntropy() float64 {
 
 // JointEntropy returns the entropy of the joint
 // distribution over all the bits.
-func (e *EntropyCounter[T]) JointEntropy() float64 {
+func (e *EntropyCounter) JointEntropy() float64 {
 	var entropy float64
 	for _, count := range e.jointCounts {
 		if count == 0 {
@@ -82,9 +82,9 @@ func (e *EntropyCounter[T]) JointEntropy() float64 {
 // Future calls to BitwiseEntropy() will return this new
 // value.
 //
-// This can be called multiple times, erasing the previous
+// BitPatternhis can be called multiple times, erasing the previous
 // result. Successive permutations will not be composed.
-func (e *EntropyCounter[T]) PermutedBitwiseEntropy(perm []T) float64 {
+func (e *EntropyCounter) PermutedBitwiseEntropy(perm []BitPattern) float64 {
 	for i := range e.singleCounts {
 		e.singleCounts[i] = 0
 	}
@@ -102,14 +102,14 @@ func (e *EntropyCounter[T]) PermutedBitwiseEntropy(perm []T) float64 {
 // Smooth copies other and readjusts the probabilities
 // under the assumption that bits will be randomly and
 // independently flipped with the given probability.
-func (e *EntropyCounter[T]) Smooth(other *EntropyCounter[T], flipProb float64) {
+func (e *EntropyCounter) Smooth(other *EntropyCounter, flipProb float64) {
 	for i := range e.jointCounts {
 		e.jointCounts[i] = 0
 	}
 	for i, count := range other.jointCounts {
-		pattern := T(i)
+		pattern := BitPattern(i)
 		for j := range other.jointCounts {
-			pattern1 := T(j)
+			pattern1 := BitPattern(j)
 			numFlipped := bits.OnesCount64(uint64(pattern ^ pattern1))
 			weight := math.Pow(flipProb, float64(numFlipped)) *
 				math.Pow(1-flipProb, float64(len(e.singleCounts)-numFlipped))
@@ -122,7 +122,7 @@ func (e *EntropyCounter[T]) Smooth(other *EntropyCounter[T], flipProb float64) {
 		e.singleCounts[i] = 0
 	}
 	for i, count := range e.jointCounts {
-		outVal := T(i)
+		outVal := BitPattern(i)
 		for j, x := range e.singleCounts {
 			if outVal&(1<<uint(j)) != 0 {
 				e.singleCounts[j] = x + count
@@ -133,6 +133,6 @@ func (e *EntropyCounter[T]) Smooth(other *EntropyCounter[T], flipProb float64) {
 	e.count = other.count
 }
 
-func (e *EntropyCounter[T]) JointCount(x T) float64 {
+func (e *EntropyCounter) JointCount(x BitPattern) float64 {
 	return e.jointCounts[x]
 }
