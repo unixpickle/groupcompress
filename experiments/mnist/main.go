@@ -30,13 +30,16 @@ type Args[T groupcompress.BitPattern] struct {
 	SavePath string
 
 	// Hyperparameters
-	BatchSize         int
-	NumBits           int
-	BitChunkSize      int
-	Samples           int
-	Smoothing         float64
+	BatchSize    int
+	NumBits      int
+	BitChunkSize int
+	Samples      int
+	Smoothing    float64
+
+	// Permutation search
 	SearchType        string
 	PermMinDifference float64
+	PermEnsemble      bool
 	EvoSearch         groupcompress.EvoPermSearch[T]
 
 	// Sampling
@@ -54,6 +57,8 @@ func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
 	fs.StringVar(&a.SearchType, "search-type", "evo", "options: evo, greedybit, singlebit")
 	fs.Float64Var(&a.PermMinDifference, "perm-min-difference", 0.0,
 		"minimum count differential for swap (greedybit, singlebit)")
+	fs.BoolVar(&a.PermEnsemble, "perm-ensemble", false,
+		"use unsembling for singlebit search")
 	fs.IntVar(&a.EvoSearch.Generations, "perm-generations", 0,
 		"generations of evolutionary permutation search")
 	fs.IntVar(&a.EvoSearch.Population, "perm-population", 1000,
@@ -69,6 +74,9 @@ func (a *Args[T]) AddToFlags(fs *flag.FlagSet) {
 }
 
 func (a *Args[T]) PermSearch() groupcompress.PermSearch[T] {
+	if a.SearchType != "singlebit" && a.PermEnsemble {
+		essentials.Die("-perm-ensemble does nothing with -search-type '" + a.SearchType + "'")
+	}
 	if a.SearchType == "evo" {
 		if a.PermMinDifference != 0 {
 			essentials.Die("-perm-min-difference does nothing with -search-type 'evo'")
@@ -77,7 +85,10 @@ func (a *Args[T]) PermSearch() groupcompress.PermSearch[T] {
 	} else if a.SearchType == "greedybit" {
 		return &groupcompress.GreedyBitwiseSearch[T]{MinDifference: a.PermMinDifference}
 	} else if a.SearchType == "singlebit" {
-		return &groupcompress.SingleBitPartitionSearch[T]{MinDifference: a.PermMinDifference}
+		return &groupcompress.SingleBitPartitionSearch[T]{
+			MinDifference: a.PermMinDifference,
+			Ensemble:      a.PermEnsemble,
+		}
 	} else {
 		essentials.Die("unsupported search type:", a.SearchType)
 		panic("unreachable")
