@@ -165,6 +165,7 @@ func (g *GreedyBitwiseSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCoun
 
 type SingleBitPartitionSearch[T BitPattern] struct {
 	MinDifference float64
+	Ensemble      bool
 }
 
 func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *EntropyCounter[T]) []T {
@@ -180,7 +181,7 @@ func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *Entrop
 				diff := e.JointCount(pattern) - e.JointCount(other)
 				diffSum += math.Abs(diff)
 				oldDiffSum += diff
-				if diff > 0 {
+				if g.ShouldSwap(e, pattern, bit) {
 					perm[i], perm[other] = other, pattern
 				} else {
 					perm[i], perm[other] = pattern, other
@@ -197,14 +198,40 @@ func (g *SingleBitPartitionSearch[T]) Search(rng *rand.Rand, size int, e *Entrop
 
 	bestObj := math.Inf(-1)
 	var bestMask T
-	for bitMask := uint64(1); (1 << bitMask) < size; bitMask <<= 1 {
-		setGreedyPermutation(T(bitMask))
+	for i := uint(0); i < uint(e.NumBits()); i++ {
+		bitMask := T(1 << i)
+		setGreedyPermutation(bitMask)
 		obj := -e.PermutedBitwiseEntropy(perm)
 		if obj > bestObj {
 			bestObj = obj
-			bestMask = T(bitMask)
+			bestMask = bitMask
 		}
 	}
 	setGreedyPermutation(bestMask)
 	return perm
+}
+
+func (g *SingleBitPartitionSearch[T]) ShouldSwap(e *EntropyCounter[T], pattern, bit T) bool {
+	if !g.Ensemble {
+		other := pattern ^ bit
+		diff := e.JointCount(pattern) - e.JointCount(other)
+		return diff > 0
+	} else {
+		numGood := 0
+		numBad := 0
+		for i := uint(0); i < uint(e.NumBits()); i++ {
+			otherBit := T(1 << i)
+			if otherBit == bit {
+				continue
+			}
+			baseCount := e.JointCount(pattern) + e.JointCount(pattern^otherBit)
+			otherCount := e.JointCount(pattern^bit) + e.JointCount(pattern^bit^otherBit)
+			if baseCount > otherCount {
+				numGood++
+			} else {
+				numBad++
+			}
+		}
+		return numGood > numBad
+	}
 }

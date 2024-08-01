@@ -20,6 +20,11 @@ func NewEntropyCounter[T BitPattern](numBits int) *EntropyCounter[T] {
 	}
 }
 
+// NumBits returns the number of bits.
+func (e *EntropyCounter[T]) NumBits() int {
+	return len(e.singleCounts)
+}
+
 // Reset resets the entropy counter as if it had never seen
 // any previous bit patterns.
 func (e *EntropyCounter[T]) Reset() {
