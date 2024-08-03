@@ -151,7 +151,7 @@ func main() {
 		validEnd := groupcompress.MeanBitwiseEntropy(validBatch)
 		log.Printf(
 			"step %d: loss=%f reduction=%f valid_reduction=%f",
-			len(model)-1,
+			len(model),
 			initEntropy*28*28,
 			result.RawDeltas.Reduction(),
 			(validStart-validEnd)*28*28,
