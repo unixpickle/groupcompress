@@ -13,7 +13,7 @@ type PermSearch interface {
 	// The size argument indicates the number of elements
 	// in the permutation.
 	// The rng may be used as part of the search.
-	Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern
+	Search(rng *rand.Rand, size int, e *EntropyCounter) Perm
 }
 
 // RandomPermSearch is a PermSearch which samples random
@@ -24,11 +24,11 @@ type RandomPermSearch struct {
 
 // Search tries r.Samples permutations and returns the one
 // with the best objective value.
-func (r *RandomPermSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern {
-	var bestPerm []BitPattern
+func (r *RandomPermSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) Perm {
+	var bestPerm Perm
 	var bestObj float64
 	for i := 0; i < r.Samples; i++ {
-		perm := make([]BitPattern, size)
+		perm := make(Perm, size)
 		for i, x := range rng.Perm(len(perm)) {
 			perm[i] = BitPattern(x)
 		}
@@ -64,7 +64,7 @@ type EvoPermSearch struct {
 }
 
 // Search performs evolutionary search.
-func (e *EvoPermSearch) Search(rng *rand.Rand, size int, ec *EntropyCounter) []BitPattern {
+func (e *EvoPermSearch) Search(rng *rand.Rand, size int, ec *EntropyCounter) Perm {
 	if e.Generations == 0 {
 		return (&RandomPermSearch{
 			Samples: e.Population * (1 + e.Mutations),
@@ -74,7 +74,7 @@ func (e *EvoPermSearch) Search(rng *rand.Rand, size int, ec *EntropyCounter) []B
 	population := make(evoPopulation, e.Population*(1+e.Mutations))
 	for i := range population {
 		var p evoSample
-		p.Perm = make([]BitPattern, size)
+		p.Perm = make(Perm, size)
 		if i == 0 {
 			for j := range p.Perm {
 				p.Perm[j] = BitPattern(j)
@@ -114,7 +114,7 @@ func (e *EvoPermSearch) Search(rng *rand.Rand, size int, ec *EntropyCounter) []B
 }
 
 type evoSample struct {
-	Perm  []BitPattern
+	Perm  Perm
 	Value float64
 }
 
@@ -136,13 +136,13 @@ type GreedyBitwiseSearch struct {
 	MinDifference float64
 }
 
-func (g *GreedyBitwiseSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern {
-	perm := make([]BitPattern, size)
+func (g *GreedyBitwiseSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) Perm {
+	perm := make(Perm, size)
 	for i := range perm {
 		perm[i] = BitPattern(i)
 	}
 	loss := -e.PermutedBitwiseEntropy(perm)
-	inverse := append([]BitPattern{}, perm...)
+	inverse := append(Perm{}, perm...)
 	for bitMask := uint64(1); (1 << bitMask) < size; bitMask <<= 1 {
 		for i, t := range perm {
 			other := t ^ BitPattern(bitMask)
@@ -168,8 +168,8 @@ type SingleBitPartitionSearch struct {
 	Ensemble      bool
 }
 
-func (g *SingleBitPartitionSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) []BitPattern {
-	perm := make([]BitPattern, size)
+func (g *SingleBitPartitionSearch) Search(rng *rand.Rand, size int, e *EntropyCounter) Perm {
+	perm := make(Perm, size)
 
 	setGreedyPermutation := func(bit BitPattern) {
 		diffSum := 0.0
