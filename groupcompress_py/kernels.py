@@ -22,6 +22,8 @@ def count_bit_patterns(inputs: torch.Tensor, indices: torch.Tensor) -> torch.Ten
 
     if output.device.type == "cpu":
         groupcompress_py_ext.count_bit_patterns_cpu(inputs, indices, output)
+    elif output.device.type == "cuda":
+        groupcompress_py_ext.count_bit_patterns_cuda(inputs, indices, output)
     else:
         raise ValueError(f"unsupported device type: {output.device.type}")
 

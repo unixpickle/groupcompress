@@ -9,7 +9,6 @@ if torch.cuda.is_available():
             "groupcompress_py_ext",
             [
                 "groupcompress_py_ext/groupcompress_cuda.cu",
-                "groupcompress_py_ext/groupcompress_cpu.cpp",
             ],
         )
     )

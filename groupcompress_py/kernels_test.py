@@ -3,11 +3,22 @@ import torch
 
 from groupcompress_py.kernels import count_bit_patterns
 
+devices = ["cpu"] if not torch.cuda.is_available() else ["cpu", "cuda"]
 
-@pytest.mark.parametrize("device", ["cpu"])
-def test_count_bit_patterns(device: str):
+
+@pytest.mark.parametrize("device", devices)
+def test_count_bit_patterns_small(device: str):
     inputs = torch.randint(low=0, high=2, size=(100, 257), device=device).byte()
     indices = torch.randint(low=0, high=257, size=(37, 3), device=device).long()
+    actual_output = count_bit_patterns(inputs, indices)
+    expected_output = count_bit_pattern_naive(inputs, indices)
+    assert (actual_output == expected_output).all().item()
+
+
+@pytest.mark.parametrize("device", devices)
+def test_count_bit_patterns_large(device: str):
+    inputs = torch.randint(low=0, high=2, size=(512, 2048), device=device).byte()
+    indices = torch.randint(low=0, high=2048, size=(10000, 8), device=device).long()
     actual_output = count_bit_patterns(inputs, indices)
     expected_output = count_bit_pattern_naive(inputs, indices)
     assert (actual_output == expected_output).all().item()
@@ -23,4 +34,16 @@ def count_bit_pattern_naive(
             values |= inputs[:, idx].long() << j
         count = torch.bincount(values, minlength=2 ** indices.shape[1])
         counts[i] = count
-    return counts
+    return counts.to(inputs.device)
+
+
+@pytest.mark.parametrize("device", devices)
+def test_count_bit_patterns_time(benchmark, device: str):
+    # Simulate MNIST with 10k examples and 10k permutations.
+    inputs = torch.randint(low=0, high=2, size=(10000, 28 * 28), device=device).byte()
+    indices = torch.randint(low=0, high=28 * 28, size=(10000, 4), device=device).long()
+
+    def fn():
+        count_bit_patterns(inputs, indices).sum().item()
+
+    benchmark(fn)

@@ -18,21 +18,28 @@ void count_bit_patterns_cpu_kernel(
     size_t numIndices)
 {
     size_t inputsPerBlock = 16384 / inputSize;
-    if (!inputsPerBlock) {
+    if (!inputsPerBlock)
+    {
         inputsPerBlock = 1;
     }
     size_t indexPerBlock = 16384 / numBits;
     size_t numValues = 1 << numBits;
 
-    for (size_t i = 0; i < numInputs; i += inputsPerBlock) {
-        for (size_t k = 0; k < numIndices; k += indexPerBlock) {
-            for (size_t j = i; j < i + inputsPerBlock && j < numInputs; j++) {
+    for (size_t i = 0; i < numInputs; i += inputsPerBlock)
+    {
+        for (size_t k = 0; k < numIndices; k += indexPerBlock)
+        {
+            for (size_t j = i; j < i + inputsPerBlock && j < numInputs; j++)
+            {
                 const uint8_t *input = &inputs[j * inputSize];
-                for (size_t l = k; l < k + indexPerBlock && l < numIndices; l++) {
+                for (size_t l = k; l < k + indexPerBlock && l < numIndices; l++)
+                {
                     const uint64_t *curIndex = &indices[l * numBits];
                     uint8_t result = 0;
-                    for (size_t m = 0; m < numBits; m++) {
-                        if (input[curIndex[m]]) {
+                    for (size_t m = 0; m < numBits; m++)
+                    {
+                        if (input[curIndex[m]])
+                        {
                             result |= 1 << m;
                         }
                     }
