@@ -28,3 +28,21 @@ def count_bit_patterns(inputs: torch.Tensor, indices: torch.Tensor) -> torch.Ten
         raise ValueError(f"unsupported device type: {output.device.type}")
 
     return output
+
+
+def greedy_permutation_search(counts: torch.Tensor) -> torch.Tensor:
+    """
+    :param counts: a [K x 2**num_bits] Long tensor of bit pattern counts.
+    :return: a [K x 2**num_bits] Long tensor of optimized permutations.
+    """
+    assert counts.dtype == torch.long
+    assert len(counts.shape) == 2
+
+    output = torch.zeros_like(counts)
+
+    if output.device.type == "cpu":
+        groupcompress_py_ext.greedy_permutation_search_cpu(counts, output)
+    else:
+        raise ValueError(f"unsupported device type: {output.device.type}")
+
+    return output
