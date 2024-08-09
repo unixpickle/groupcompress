@@ -133,8 +133,6 @@ void greedy_permutation_search_cpu_kernel(
                 uint64_t pattern = perm[i];
                 uint64_t other = pattern ^ (1 << bit);
                 uint64_t otherIdx = inverse[other];
-                uint64_t patternCount = subCounts[pattern];
-                uint64_t otherCount = subCounts[other];
 
                 perm[i] = other;
                 perm[otherIdx] = pattern;
@@ -167,6 +165,7 @@ void greedy_permutation_search_cpu(
     CHECK_LONG(output);
 
     AT_ASSERTM(counts.size(0) == output.size(0), "mismatching output shapes");
+    AT_ASSERTM(counts.size(1) == output.size(1), "mismatching output shapes");
     AT_ASSERTM(counts.size(1) <= 256, "unsupported number of bits");
 
     size_t numCombos = output.size(1);

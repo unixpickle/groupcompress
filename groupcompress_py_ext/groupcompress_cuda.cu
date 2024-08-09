@@ -112,9 +112,137 @@ void count_bit_patterns_cuda(
     }
 }
 
+__device__ float permutation_entropy_cuda(
+    const uint64_t *counts,
+    const uint64_t *perm,
+    size_t numBits)
+{
+    uint64_t bitCount[8];
+    for (size_t i = 0; i < numBits; i++) {
+        bitCount[i] = 0;
+    }
+    uint64_t totalCount = 0;
+    for (size_t i = 0; i < (1 << numBits); i++) {
+        uint64_t value = perm[i];
+        uint64_t count = counts[i];
+        for (size_t j = 0; j < numBits; j++) {
+            if (value & (1 << j)) {
+                bitCount[j] += count;
+            }
+        }
+        totalCount += count;
+    }
+    float result = 0.0;
+    for (size_t i = 0; i < numBits; i++) {
+        uint64_t count = bitCount[i];
+        if (count == 0 || count == totalCount) {
+            continue;
+        }
+        float prob = ((float)count) / ((float)totalCount);
+        if (prob > 0) {
+            result -= prob * log(prob);
+        }
+        if (1 - prob > 0) {
+            result -= (1 - prob) * log(1 - prob);
+        }
+    }
+    return result;
+}
+
+__global__ void greedy_permutation_search_cuda_kernel(
+    const uint64_t *counts,
+    uint64_t *permOut,
+    uint64_t *inverseOut,
+    size_t batchSize,
+    size_t numBits)
+{
+    const size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx >= batchSize) {
+        return;
+    }
+
+    const size_t offset = idx << numBits;
+    const uint64_t *subCounts = &counts[offset];
+    uint64_t *inverse = &inverseOut[offset];
+    uint64_t *perm = &permOut[offset];
+
+    for (size_t j = 0; j < (1 << numBits); j++) {
+        perm[j] = j;
+        inverse[j] = j;
+    }
+
+    float entropy = permutation_entropy_cuda(subCounts, perm, numBits);
+
+    // Greedily swap each example for each bit.
+    for (size_t bit = 0; bit < numBits; bit++) {
+        for (uint64_t i = 0; i < (1 << numBits); i++) {
+            uint64_t pattern = perm[i];
+            uint64_t other = pattern ^ (1 << bit);
+            uint64_t otherIdx = inverse[other];
+
+            perm[i] = other;
+            perm[otherIdx] = pattern;
+            float newEntropy = permutation_entropy_cuda(subCounts, perm, numBits);
+
+            if (newEntropy > entropy) {
+                perm[i] = pattern;
+                perm[otherIdx] = other;
+            } else {
+                inverse[pattern] = otherIdx;
+                inverse[other] = i;
+                entropy = newEntropy;
+            }
+        }
+    }
+}
+
+void greedy_permutation_search_cuda(
+    const torch::Tensor counts,
+    torch::Tensor output,
+    torch::Tensor invOutput)
+{
+    CHECK_INPUT_CUDA(counts);
+    CHECK_INPUT_CUDA(output);
+    CHECK_INPUT_CUDA(invOutput);
+    CHECK_LONG(counts);
+    CHECK_LONG(output);
+    CHECK_LONG(invOutput);
+
+    AT_ASSERTM(counts.size(0) == output.size(0), "mismatching output shapes");
+    AT_ASSERTM(counts.size(1) == output.size(1), "mismatching output shapes");
+    AT_ASSERTM(counts.size(1) == invOutput.size(1), "mismatching output shapes");
+    AT_ASSERTM(counts.size(1) <= 256, "unsupported number of bits");
+
+    size_t numCombos = output.size(1);
+    size_t numBits = 0;
+    for (size_t i = 1; i < 9; i++) {
+        if (1 << i == numCombos) {
+            numBits = i;
+        }
+    }
+    assert(numBits != 0);
+
+    int blockSize = 1024;
+    int numBlocks = counts.size(0) / blockSize;
+    if (counts.size(0) % blockSize) {
+        numBlocks++;
+    }
+
+    const dim3 threads(blockSize, 1, 1);
+    const dim3 blocks(numBlocks, 1, 1);
+
+    greedy_permutation_search_cuda_kernel<<<blocks, threads>>>(
+        (const uint64_t *)counts.data_ptr(),
+        (uint64_t *)output.data_ptr(),
+        (uint64_t *)invOutput.data_ptr(),
+        counts.size(0),
+        numBits);
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     m.def("count_bit_patterns_cpu", &count_bit_patterns_cpu, "Count bit patterns extracted from inputs");
     m.def("greedy_permutation_search_cpu", &greedy_permutation_search_cpu, "Search for permutations to reduce bitwise entropy");
     m.def("count_bit_patterns_cuda", &count_bit_patterns_cuda, "Count bit patterns extracted from inputs");
+    m.def("greedy_permutation_search_cuda", &greedy_permutation_search_cuda, "Search for permutations to reduce bitwise entropy");
 }

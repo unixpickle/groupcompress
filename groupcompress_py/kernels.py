@@ -42,6 +42,12 @@ def greedy_permutation_search(counts: torch.Tensor) -> torch.Tensor:
 
     if output.device.type == "cpu":
         groupcompress_py_ext.greedy_permutation_search_cpu(counts, output)
+    elif output.device.type == "cuda":
+        # Kernel will write inverse permutation as well, but we will
+        # ignore this output.
+        groupcompress_py_ext.greedy_permutation_search_cuda(
+            counts, output, output.clone()
+        )
     else:
         raise ValueError(f"unsupported device type: {output.device.type}")
 

@@ -51,7 +51,7 @@ def test_count_bit_patterns_time(benchmark, device: str):
     benchmark(fn)
 
 
-@pytest.mark.parametrize("device", ["cpu"])
+@pytest.mark.parametrize("device", devices)
 def test_greedy_permutation_search(device: str):
     counts = torch.randint(low=0, high=512, size=(10000, 32), device=device).long()
     perm = greedy_permutation_search(counts)
@@ -62,6 +62,17 @@ def test_greedy_permutation_search(device: str):
     new_ent = total_bitwise_entropy(new_counts)
 
     assert (new_ent <= orig_ent).all().item()
+
+
+@pytest.mark.parametrize("device", devices)
+def test_greedy_permutation_search_time(benchmark, device: str):
+    # Simulate search for 1M examples and four bits.
+    counts = torch.randint(low=0, high=10000, size=(100000, 32), device=device).long()
+
+    def fn():
+        greedy_permutation_search(counts).sum().item()
+
+    benchmark(fn)
 
 
 def total_bitwise_entropy(counts: torch.Tensor) -> torch.Tensor:
