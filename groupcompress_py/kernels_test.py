@@ -3,6 +3,7 @@ import math
 import pytest
 import torch
 
+from groupcompress_py.entropy_search import total_bitwise_entropy
 from groupcompress_py.kernels import count_bit_patterns, greedy_permutation_search
 
 devices = ["cpu"] if not torch.cuda.is_available() else ["cpu", "cuda"]
@@ -73,25 +74,3 @@ def test_greedy_permutation_search_time(benchmark, device: str):
         greedy_permutation_search(counts).sum().item()
 
     benchmark(fn)
-
-
-def total_bitwise_entropy(counts: torch.Tensor) -> torch.Tensor:
-    """
-    :param counts: [N x 2**num_bits]
-    :return: [N] tensor of entropies
-    """
-    num_bits = int(math.log2(counts.shape[1]))
-    values = torch.arange(0, 2**num_bits).to(counts)
-    totals = counts.sum(-1).float()
-    total = 0
-    for bit in range(num_bits):
-        probs_1 = (
-            torch.where((values & (1 << bit) != 0), counts, torch.zeros_like(counts))
-            .sum(-1)
-            .float()
-            / totals
-        )
-        probs_0 = 1 - probs_1
-        total += probs_1 * probs_1.clamp(min=1e-18).log()
-        total += probs_0 * probs_0.clamp(min=1e-18).log()
-    return -total

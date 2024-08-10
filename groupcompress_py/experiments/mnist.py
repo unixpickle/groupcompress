@@ -35,7 +35,6 @@ def main():
             dataset=batch,
             num_bits=args.num_bits,
             num_samples=args.samples,
-            batch_size=args.microbatch,
         )
         print(f"step {len(model)}: loss={entropy} delta={result.delta}")
         model.append(result.transform)
@@ -92,12 +91,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--batch-size", type=int, default=128, help="examples per layer"
-    )
-    parser.add_argument(
-        "--microbatch",
-        type=int,
-        default=128,
-        help="samples per entropy evaluation, used to save memory",
     )
     parser.add_argument("--num-bits", type=int, default=3, help="bits per group")
     parser.add_argument("--samples", type=int, default=100000, help="groups to sample")
