@@ -46,6 +46,57 @@ __global__ void count_bit_patterns_cuda_kernel(
     }
 }
 
+template <size_t numBits, size_t numCombos>
+__global__ void count_bit_patterns_cuda_kernel_prefetch(
+    const uint8_t *inputs,
+    const uint64_t *indices,
+    uint64_t *outputs,
+    size_t inputSize,
+    size_t numInputs,
+    size_t numIndices)
+{
+    __shared__ uint32_t prefetched[1024];
+    uint64_t permutation[numBits];
+    uint64_t output[numCombos];
+
+    uint8_t *prefetchedBytes = (uint8_t *)prefetched;
+
+    const size_t permIndex = threadIdx.x + blockIdx.x * blockDim.x;
+    const bool mask = permIndex < numIndices;
+    for (size_t i = 0; i < numBits; i++) {
+        permutation[i] = mask ? indices[i + permIndex * numBits] : 0;
+    }
+
+    for (size_t i = 0; i < numCombos; i++) {
+        output[i] = 0;
+    }
+
+    for (size_t i = 0; i < numInputs; i++) {
+        const uint32_t *input = (const uint32_t *)&inputs[i * inputSize];
+        for (size_t j = 0; j * 4 < inputSize; j += blockDim.x) {
+            const size_t inputOffset = j + threadIdx.x;
+            if (inputOffset * 4 < inputSize) {
+                prefetched[inputOffset] = input[inputOffset];
+            }
+        }
+        __syncthreads();
+
+        uint8_t value = 0;
+        for (size_t j = 0; j < numBits; j++) {
+            value |= prefetchedBytes[permutation[j]] << j;
+        }
+        output[value]++;
+        __syncthreads();
+    }
+
+    uint64_t *subOutput = &outputs[numCombos * permIndex];
+    for (size_t i = 0; i < numCombos; i++) {
+        if (mask) {
+            subOutput[i] = output[i];
+        }
+    }
+}
+
 void count_bit_patterns_cuda(
     const torch::Tensor inputs,
     const torch::Tensor indices,
@@ -73,14 +124,24 @@ void count_bit_patterns_cuda(
     const dim3 threads(blockSize, 1, 1);
     const dim3 blocks(numBlocks, 1, 1);
 
-#define DISPATCH(x, y)                                         \
-    count_bit_patterns_cuda_kernel<x, y><<<blocks, threads>>>( \
-        (const uint8_t *)inputs.data_ptr(),                    \
-        (const uint64_t *)indices.data_ptr(),                  \
-        (uint64_t *)output.data_ptr(),                         \
-        inputs.size(1),                                        \
-        inputs.size(0),                                        \
-        indices.size(0));
+#define DISPATCH(x, y)                                                                             \
+    if (inputs.size(1) <= 4096 && inputs.size(1) % 4 == 0 && ((long)inputs.data_ptr()) % 4 == 0) { \
+        count_bit_patterns_cuda_kernel_prefetch<x, y><<<blocks, threads>>>(                        \
+            (const uint8_t *)inputs.data_ptr(),                                                    \
+            (const uint64_t *)indices.data_ptr(),                                                  \
+            (uint64_t *)output.data_ptr(),                                                         \
+            inputs.size(1),                                                                        \
+            inputs.size(0),                                                                        \
+            indices.size(0));                                                                      \
+    } else {                                                                                       \
+        count_bit_patterns_cuda_kernel<x, y><<<blocks, threads>>>(                                 \
+            (const uint8_t *)inputs.data_ptr(),                                                    \
+            (const uint64_t *)indices.data_ptr(),                                                  \
+            (uint64_t *)output.data_ptr(),                                                         \
+            inputs.size(1),                                                                        \
+            inputs.size(0),                                                                        \
+            indices.size(0));                                                                      \
+    }
 
     switch (numBits) {
     case 1:
